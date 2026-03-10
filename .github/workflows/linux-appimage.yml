@@ -48,18 +48,16 @@ jobs:
       run: |
         cd main
         node -e "
+          const fs = require('fs');
           const pkg = require('./package.json');
           pkg.dependencies['electron-overlay-window'] = 'github:murrain/electron-overlay-window';
           pkg.repository.url = 'https://github.com/murrain/awakened-poe-trade.git';
-          require('fs').writeFileSync('./package.json', JSON.stringify(pkg, null, 2) + '\n');
+          fs.writeFileSync('./package.json', JSON.stringify(pkg, null, 2) + '\n');
+          let updater = fs.readFileSync('src/AppUpdater.ts', 'utf8');
+          const inject = \"    autoUpdater.setFeedURL({ provider: 'github', owner: 'murrain', repo: 'awakened-poe-trade' })\n\";
+          updater = updater.replace('// https://www.electron.build', inject + '    // https://www.electron.build');
+          fs.writeFileSync('src/AppUpdater.ts', updater);
         "
-        sed -i "/autoUpdater.autoDownload/i\\
-    autoUpdater.setFeedURL({\\
-      provider: 'github',\\
-      owner: 'murrain',\\
-      repo: 'awakened-poe-trade'\\
-    })\\
-" src/AppUpdater.ts
 
     - name: Build renderer
       run: |
