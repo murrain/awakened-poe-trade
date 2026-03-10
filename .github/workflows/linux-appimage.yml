@@ -86,7 +86,7 @@ jobs:
       run: |
         gh release create "${UPSTREAM_TAG}-linux" \
           --repo ${{ github.repository }} \
-          --title "Awakened-PoE-Trade-${UPSTREAM_TAG}-linux" \
+          --title "Awakened PoE Trade ${UPSTREAM_TAG} (Linux)" \
           --notes "Automated Linux AppImage build of upstream ${UPSTREAM_TAG} with patched electron-overlay-window (pointer grab fix)." \
           --latest \
           main/dist/*.AppImage \
