@@ -34,7 +34,12 @@ export class OverlayWindow {
     this.server.onEventAnyClient('OVERLAY->MAIN::set-input-regions', (e) => {
       if (process.platform === 'linux') {
         try {
-          OverlayController.setInputRegions(e.regions)
+          if (hasSetInputRegions(OverlayController)) {
+            OverlayController.setInputRegions(e.regions)
+          } else {
+            this.logger.write('warn [Overlay] setInputRegions unavailable in current electron-overlay-window build')
+            return
+          }
           const summary = e.regions.length === 0
             ? 'none'
             : e.regions.map(r => `(${r.x},${r.y} ${r.width}x${r.height})`).join(' ')
@@ -207,4 +212,10 @@ export class OverlayWindow {
     })
     this.isOverlayKeyUsed = false
   }
+}
+
+function hasSetInputRegions (
+  value: typeof OverlayController
+): value is typeof OverlayController & { setInputRegions: (regions: Array<{ x: number, y: number, width: number, height: number }>) => void } {
+  return typeof (value as { setInputRegions?: unknown }).setInputRegions === 'function'
 }

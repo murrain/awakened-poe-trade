@@ -164,13 +164,12 @@ type IpcItemText =
     clipboard: string
     item?: unknown
     position: { x: number, y: number }
-    gameBounds?: { x: number, y: number, width: number, height: number }
-    focusOverlay: boolean
     // Game window bounds in X11 physical pixels (from xcb). On Linux, use
     // these instead of window.screenX/Y for track-area calculations so the
     // coords are in the same space as uiohook mouse events and are reliable
     // across multi-monitor setups.
     gameBounds?: { x: number, y: number, width: number, height: number }
+    focusOverlay: boolean
   }>
 
 type IpcOcrText =
