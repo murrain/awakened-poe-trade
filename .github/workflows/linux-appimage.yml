@@ -181,8 +181,25 @@ jobs:
 
         HEADER
 
-        # Try to fetch upstream release notes for this version
-        UPSTREAM_BODY=$(gh api repos/SnosMe/awakened-poe-trade/releases/tags/"v${VERSION}" --jq '.body // ""' 2>/dev/null || echo "")
+        # Try to fetch upstream release notes for this version.
+        # Fork versions use a 6-digit patch segment where the last 3 digits
+        # are Linux fork-specific, so we strip them using string slicing.
+        IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION"
+        if [ -z "$MAJOR" ] || [ -z "$MINOR" ] || [ -z "$PATCH" ]; then
+          echo "::warning::Invalid fork version: $VERSION"
+          UPSTREAM_TAG=""
+        elif ! [[ "$PATCH" =~ ^[0-9]{4,}$ ]]; then
+          echo "::warning::Invalid fork patch segment: $PATCH"
+          UPSTREAM_TAG=""
+        else
+          UPSTREAM_PATCH="${PATCH:0:${#PATCH}-3}"
+          UPSTREAM_TAG="v${MAJOR}.${MINOR}.${UPSTREAM_PATCH}"
+        fi
+
+        UPSTREAM_BODY=""
+        if [ -n "$UPSTREAM_TAG" ]; then
+          UPSTREAM_BODY=$(gh api repos/SnosMe/awakened-poe-trade/releases/tags/"$UPSTREAM_TAG" --jq '.body // ""' 2>/dev/null || echo "")
+        fi
         if [ -n "$UPSTREAM_BODY" ]; then
           printf '%s\n' "$UPSTREAM_BODY" >> "$NOTES_FILE"
         else
