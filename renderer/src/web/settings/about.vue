@@ -5,7 +5,7 @@
       <p class="text-base">Awakened PoE Trade</p>
       <p class="">{{ t('app.version', [version]) }}</p>
       <div class="flex gap-2">
-        <a class="border-b" href="https://github.com/SnosMe/awakened-poe-trade/releases" target="_blank">{{ t('app.release_notes') }}</a>
+        <a class="border-b" :href="releaseNotesUrl" target="_blank">{{ t('app.release_notes') }}</a>
         <a class="border-b" href="https://github.com/SnosMe/awakened-poe-trade/issues" target="_blank">{{ t('app.report_bug') }}</a>
       </div>
     </div>
@@ -53,11 +53,38 @@ function fmtTime (millis: number) {
   return DateTime.fromMillis(millis).toRelative({ style: 'long' }) ?? 'n/a'
 }
 
+function deriveUpstreamTagFromForkVersion (version: string): string {
+  const [major, minor, patchStr] = version.split('.')
+
+  if (!major || !minor || !patchStr) {
+    throw new Error(`Invalid version: ${version}`)
+  }
+
+  const patch = Number.parseInt(patchStr, 10)
+  if (!Number.isFinite(patch)) {
+    throw new Error(`Invalid patch version: ${version}`)
+  }
+
+  const upstreamPatch = patch >= 1000 ? Math.floor(patch / 1000) : patch
+  return `v${major}.${minor}.${upstreamPatch}`
+}
+
 export default defineComponent({
   name: 'settings.about',
   inheritAttrs: false,
   setup () {
     const { t } = useI18n()
+    const version = Host.version
+
+    const releaseNotesUrl = computed(() => {
+      const fallback = 'https://github.com/SnosMe/awakened-poe-trade/releases'
+      try {
+        const tag = deriveUpstreamTagFromForkVersion(version.value)
+        return `https://api.github.com/repos/SnosMe/awakened-poe-trade/releases/tags/${tag}`
+      } catch {
+        return fallback
+      }
+    })
 
     const info = computed(() => {
       const rawInfo = Host.updateInfo.value
@@ -82,7 +109,8 @@ export default defineComponent({
     return {
       t,
       info,
-      version: Host.version
+      releaseNotesUrl,
+      version
     }
   }
 })
