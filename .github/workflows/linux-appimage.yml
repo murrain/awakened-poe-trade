@@ -113,6 +113,10 @@ jobs:
       with:
         ref: linux
 
+    # electron-overlay-window's native addon needs xcb-shape headers to compile
+    - name: Install native build dependencies
+      run: sudo apt-get update && sudo apt-get install -y libxcb-shape0-dev
+
     - uses: actions/setup-node@v4
       with:
         node-version: 20
