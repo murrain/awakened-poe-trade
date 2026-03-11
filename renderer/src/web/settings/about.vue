@@ -60,12 +60,15 @@ function deriveUpstreamTagFromForkVersion (version: string): string {
     throw new Error(`Invalid version: ${version}`)
   }
 
-  const patch = Number.parseInt(patchStr, 10)
-  if (!Number.isFinite(patch)) {
+  const upstreamPatchStr = patchStr.length > 3
+    ? patchStr.slice(0, -3)
+    : patchStr
+
+  const upstreamPatch = Number.parseInt(upstreamPatchStr, 10)
+  if (!Number.isFinite(upstreamPatch)) {
     throw new Error(`Invalid patch version: ${version}`)
   }
 
-  const upstreamPatch = patch >= 1000 ? Math.floor(patch / 1000) : patch
   return `v${major}.${minor}.${upstreamPatch}`
 }
 
