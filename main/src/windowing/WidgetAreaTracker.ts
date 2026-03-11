@@ -33,7 +33,7 @@ export class WidgetAreaTracker {
         // Linux invariant: track-area coordinates are already physical X11
         // virtual-desktop pixels and are compared directly with uiohook.
         // No DIP/CSS conversion is allowed in this path.
-        this.closeThreshold = Math.round(opts.closeThreshold)
+        this.closeThreshold = Math.round(opts.closeThreshold * opts.dpr)
         this.from = normalizePoint(opts.from)
         this.area = normalizeRect(opts.area)
 

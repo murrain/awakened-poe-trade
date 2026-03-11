@@ -25,9 +25,10 @@ const props = defineProps<{
 }>()
 
 const relativePos = computed(() => {
+  const dpr = window.devicePixelRatio || 1
   return {
-    top: `calc(${props.position.y - props.origin.y}px - 2.5rem)`,
-    left: `calc(${props.position.x - props.origin.x}px - 2.5rem)`
+    top: `calc(${(props.position.y - props.origin.y) / dpr}px - 2.5rem)`,
+    left: `calc(${(props.position.x - props.origin.x) / dpr}px - 2.5rem)`
   }
 })
 </script>
