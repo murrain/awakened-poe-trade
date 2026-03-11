@@ -25,6 +25,38 @@ export class OverlayWindow {
       this.wasUsedRecently = e.isOverlay
     })
 
+    // Forward input region updates from the renderer to the native overlay.
+    // The renderer calculates which widget bounding boxes are currently visible
+    // and sends them here so that only those areas receive mouse input.
+    // Linux only — the renderer also guards the send, but we enforce the
+    // platform check here independently so neither side relies on the other.
+    let lastRegionSummary = ''
+    this.server.onEventAnyClient('OVERLAY->MAIN::set-input-regions', (e) => {
+      if (process.platform === 'linux') {
+        try {
+          if (hasSetInputRegions(OverlayController)) {
+            OverlayController.setInputRegions(e.regions)
+          } else {
+            this.logger.write('warn [Overlay] setInputRegions unavailable in current electron-overlay-window build')
+            return
+          }
+          const summary = e.regions.length === 0
+            ? 'none'
+            : e.regions.map(r => `(${r.x},${r.y} ${r.width}x${r.height})`).join(' ')
+          if (summary !== lastRegionSummary) {
+            lastRegionSummary = summary
+            this.logger.write(`debug [Overlay] setInputRegions: ${e.regions.length} region(s): ${summary}`)
+          }
+        } catch (err) {
+          this.logger.write(`warn [Overlay] setInputRegions failed: ${err}`)
+        }
+      }
+    })
+
+    this.server.onEventAnyClient('OVERLAY->MAIN::debug-log', (e) => {
+      this.logger.write(`debug [renderer] ${e.message}`)
+    })
+
     if (process.argv.includes('--no-overlay')) return
 
     this.window = new BrowserWindow({
@@ -54,6 +86,13 @@ export class OverlayWindow {
       shell.openExternal(details.url)
       return { action: 'deny' }
     })
+
+    this.window.on('focus', () => {
+      this.logger.write('debug [Overlay] BrowserWindow: focus')
+    })
+    this.window.on('blur', () => {
+      this.logger.write('debug [Overlay] BrowserWindow: blur')
+    })
   }
 
   loadAppPage (port: number) {
@@ -75,6 +114,7 @@ export class OverlayWindow {
 
   assertOverlayActive = () => {
     if (!this.isInteractable) {
+      this.logger.write('debug [Overlay] assertOverlayActive: activating')
       this.isInteractable = true
       OverlayController.activateOverlay()
       this.poeWindow.isActive = false
@@ -83,6 +123,7 @@ export class OverlayWindow {
 
   assertGameActive = () => {
     if (this.isInteractable) {
+      this.logger.write('debug [Overlay] assertGameActive: deactivating')
       this.isInteractable = false
       OverlayController.focusTarget()
       this.poeWindow.isActive = true
@@ -157,8 +198,10 @@ export class OverlayWindow {
 
   private handlePoeWindowActiveChange = (isActive: boolean) => {
     if (isActive && this.isInteractable) {
+      this.logger.write('debug [Overlay] game regained focus while interactable, deactivating overlay')
       this.isInteractable = false
     }
+    this.logger.write(`debug [Overlay] focus-change: game=${isActive} overlay=${this.isInteractable}`)
     this.server.sendEventTo('broadcast', {
       name: 'MAIN->OVERLAY::focus-change',
       payload: {
@@ -169,4 +212,10 @@ export class OverlayWindow {
     })
     this.isOverlayKeyUsed = false
   }
+}
+
+function hasSetInputRegions (
+  value: typeof OverlayController
+): value is typeof OverlayController & { setInputRegions: (regions: Array<{ x: number, y: number, width: number, height: number }>) => void } {
+  return typeof (value as { setInputRegions?: unknown }).setInputRegions === 'function'
 }

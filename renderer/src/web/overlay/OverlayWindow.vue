@@ -31,7 +31,7 @@
 </template>
 
 <script lang="ts">
-import { defineComponent, provide, shallowRef, watch, readonly, computed, onMounted, nextTick } from 'vue'
+import { defineComponent, provide, shallowRef, watch, readonly, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Host } from '@/web/background/IPC'
 import { Widget, WidgetManager } from './interfaces'
@@ -252,6 +252,92 @@ export default defineComponent({
       setFlag
     })
 
+    // --- X11 input shape region tracking ---
+    // On Linux, the overlay is a fullscreen transparent window. We use X11
+    // input shape masks so only the actual widget content areas capture
+    // mouse input — everything else passes through to the game.
+    //
+    // Widget root elements (#widget-N) are full-screen positioned wrappers.
+    // The actual interactive content is marked with data-input-region
+    // attributes (set in Widget.vue, PriceCheckWindow, SettingsWindow).
+    // We measure those elements to get accurate clickable bounds.
+    //
+    // Timing: we debounce 50ms to coalesce rapid visibility changes, then
+    // use nextTick (wait for Vue DOM flush) + requestAnimationFrame (wait
+    // for browser layout) before measuring, so getBoundingClientRect()
+    // returns the final rendered positions.
+    if (Host.isElectron && navigator.platform.startsWith('Linux')) {
+      let inputRegionTimer: ReturnType<typeof setTimeout> | null = null
+      let inputRegionRaf: number | null = null
+      let loggedEnv = false
+
+      function updateInputRegions () {
+        nextTick(() => {
+          inputRegionRaf = requestAnimationFrame(() => {
+            inputRegionRaf = null
+            const regions: Array<{ x: number, y: number, width: number, height: number }> = []
+            const dpr = window.devicePixelRatio || 1
+
+            if (!loggedEnv) {
+              loggedEnv = true
+              Host.sendEvent({
+                name: 'OVERLAY->MAIN::debug-log',
+                payload: {
+                  message: `renderer env: screenX=${window.screenX} screenY=${window.screenY}` +
+                    ` innerSize=${window.innerWidth}x${window.innerHeight}` +
+                    ` dpr=${dpr} platform=${navigator.platform}`
+                }
+              })
+            }
+
+            for (const entry of visibilityState.value) {
+              if (!entry.isVisible) continue
+              const el = document.getElementById(`widget-${entry.wmId}`)
+              if (!el) continue
+              const contentEls = el.querySelectorAll('[data-input-region]')
+              for (const target of contentEls) {
+                const rect = target.getBoundingClientRect()
+                if (rect.width <= 0 || rect.height <= 0) continue
+                // xcb_shape_rectangles operates in X11 device pixels,
+                // while getBoundingClientRect returns CSS pixels.
+                // Multiply by devicePixelRatio for HiDPI displays.
+                // Clamp negative coords to 0 — elements mid-animation
+                // (e.g. SettingsWindow's slideInDown) report their
+                // animated position, but we want the final resting spot.
+                regions.push({
+                  x: Math.round(Math.max(0, rect.x) * dpr),
+                  y: Math.round(Math.max(0, rect.y) * dpr),
+                  width: Math.round(rect.width * dpr),
+                  height: Math.round(rect.height * dpr)
+                })
+              }
+            }
+
+            Host.sendEvent({
+              name: 'OVERLAY->MAIN::set-input-regions',
+              payload: { regions }
+            })
+          })
+        })
+      }
+
+      function scheduleInputRegionUpdate () {
+        if (inputRegionTimer != null) clearTimeout(inputRegionTimer)
+        if (inputRegionRaf != null) { cancelAnimationFrame(inputRegionRaf); inputRegionRaf = null }
+        inputRegionTimer = setTimeout(updateInputRegions, 50)
+      }
+
+      // visibilityState depends on active, so watching it covers both.
+      watch(visibilityState, scheduleInputRegionUpdate, { immediate: true })
+      watch(size, scheduleInputRegionUpdate)
+
+      onUnmounted(() => {
+        if (inputRegionTimer != null) clearTimeout(inputRegionTimer)
+        if (inputRegionRaf != null) cancelAnimationFrame(inputRegionRaf)
+      })
+    }
+    // --- end input shape region tracking ---
+
     function handleBackgroundClick () {
       if (!Host.isElectron) {
         const widget = topmostOrExclusiveWidget.value
@@ -263,7 +349,13 @@ export default defineComponent({
       }
     }
 
+    const isLinuxOverlay = Host.isElectron && navigator.platform.startsWith('Linux')
+
     const overlayBackground = computed<string | undefined>(() => {
+      // On Linux, X11 input shape masks handle click-through at the window
+      // manager level — clicks outside widget regions never reach the overlay.
+      // The semi-transparent backdrop would just obscure the game for no reason.
+      if (isLinuxOverlay) return undefined
       if (!active.value) return undefined
       return AppConfig().overlayBackground
     })

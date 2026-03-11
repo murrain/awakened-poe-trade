@@ -8,7 +8,7 @@
     <div v-if="!isBrowserShown" class="layout-column shrink-0"
       style="width: var(--game-panel);">
     </div>
-    <div id="price-window" class="layout-column shrink-0 text-gray-200 pointer-events-auto" style="width: 28.75rem;">
+    <div id="price-window" class="layout-column shrink-0 text-gray-200 pointer-events-auto" style="width: 28.75rem;" data-input-region>
       <AppTitleBar @close="closePriceCheck" @click="openLeagueSelection" :title="title">
         <ui-popover v-if="stableOrbCost" trigger="click" boundary="#price-window">
           <template #target>
@@ -30,7 +30,7 @@
       <div class="grow layout-column min-h-0 bg-gray-800">
         <background-info />
         <check-position-circle v-if="showCheckPos"
-          :position="checkPosition" style="z-index: -1;" />
+          :position="checkPosition" :origin="trackAnchor" style="z-index: -1;" />
         <template v-if="item?.isErr()">
           <ui-error-box class="m-4">
             <template #name>{{ t(item.error.name) }}</template>
@@ -86,6 +86,7 @@ import CheckPositionCircle from './CheckPositionCircle.vue'
 import AppTitleBar from '@/web/ui/AppTitlebar.vue'
 import ItemQuickPrice from '@/web/ui/ItemQuickPrice.vue'
 import { PriceCheckWidget, WidgetManager, WidgetSpec } from '../overlay/interfaces'
+import { computePriceCheckTrackArea } from './track-area'
 
 type ParseError = { name: string; message: string; rawText: ParsedItem['rawText'] }
 
@@ -149,57 +150,60 @@ export default defineComponent({
     const item = shallowRef<null | Result<ParsedItem, ParseError>>(null)
     const advancedCheck = shallowRef(false)
     const checkPosition = shallowRef({ x: 1, y: 1 })
+    const checkSide = shallowRef<'stash' | 'inventory'>('stash')
+    const trackAnchor = shallowRef({
+      x: window.screenX,
+      y: window.screenY,
+      width: window.innerWidth,
+      height: window.innerHeight
+    })
+    const isLinux = navigator.userAgent.includes('Linux')
 
     MainProcess.onEvent('MAIN->CLIENT::item-text', (e) => {
       if (e.target !== 'price-check') return
 
       if (Host.isElectron && !e.focusOverlay) {
-        // On Linux, uiohook reports physical virtual-desktop pixels.
-        // Build tracked area in that same space using authoritative game bounds.
-        const isLinux = navigator.userAgent.includes('Linux')
+        const trackArea = computePriceCheckTrackArea({
+          cursor: e.position,
+          gameBounds: e.gameBounds,
+          overlayBounds: {
+            x: window.screenX,
+            y: window.screenY,
+            width: window.innerWidth,
+            height: window.innerHeight
+          },
+          panelWidthCss: wm.poePanelWidth.value,
+          widgetWidthCss: 28.75 * AppConfig().fontSize,
+          devicePixelRatio: window.devicePixelRatio,
+          isLinux
+        })
 
-        // everything in CSS pixels
-        const width = 28.75 * AppConfig().fontSize
-        const panelWidth = wm.poePanelWidth.value
-        const isRightSide = isLinux && e.gameBounds
-          ? (e.position.x - e.gameBounds.x) > e.gameBounds.width / 2
-          : (e.position.x - window.screenX) > window.innerWidth / 2
+        trackAnchor.value = trackArea.anchorBounds
+        checkSide.value = trackArea.side
 
-        const cssArea = {
-          x: isRightSide
-            ? (window.screenX + window.innerWidth) - panelWidth - width
-            : window.screenX + panelWidth,
-          y: window.screenY,
-          width,
-          height: window.innerHeight
+        if (isLinux && AppConfig().logKeys) {
+          const source = trackArea.usedLinuxFallback ? 'chromium-fallback' : 'authoritative-game-bounds'
+          console.info('[PriceCheck][Linux] register track-area', {
+            source,
+            cursor: e.position,
+            anchorBounds: trackArea.anchorBounds,
+            area: trackArea.area,
+            dpr: window.devicePixelRatio
+          })
+          if (trackArea.usedLinuxFallback) {
+            console.warn('[PriceCheck][Linux] game bounds unavailable, using Chromium fallback for track-area')
+          }
         }
-
-        const linuxScaleX = (e.gameBounds?.width && window.innerWidth > 0)
-          ? e.gameBounds.width / window.innerWidth
-          : 1
-        const linuxScaleY = (e.gameBounds?.height && window.innerHeight > 0)
-          ? e.gameBounds.height / window.innerHeight
-          : 1
-
-        const trackArea = (isLinux && e.gameBounds)
-          ? {
-              x: isRightSide
-                ? (e.gameBounds.x + e.gameBounds.width) - Math.round((panelWidth + width) * linuxScaleX)
-                : e.gameBounds.x + Math.round(panelWidth * linuxScaleX),
-              y: e.gameBounds.y,
-              width: Math.round(width * linuxScaleX),
-              height: e.gameBounds.height
-            }
-          : cssArea
 
         MainProcess.sendEvent({
           name: 'OVERLAY->MAIN::track-area',
           payload: {
             holdKey: props.config.hotkeyHold,
-            closeThreshold: isLinux ? (2.5 * AppConfig().fontSize * linuxScaleY) : (2.5 * AppConfig().fontSize),
+            closeThreshold: 2.5 * AppConfig().fontSize,
             from: e.position,
-            area: trackArea,
+            area: trackArea.area,
             dpr: window.devicePixelRatio
+
           }
         })
       }
@@ -250,9 +254,7 @@ export default defineComponent({
       if (isBrowserShown.value) {
         return 'inventory'
       } else {
-        return checkPosition.value.x > (window.screenX + window.innerWidth / 2)
-          ? 'inventory'
-          : 'stash'
+        return checkSide.value
           // or {chat, vendor, center of screen}
       }
     })
@@ -308,7 +310,9 @@ export default defineComponent({
       stableOrbCost,
       xchgRateLoading,
       showCheckPos,
+      trackAnchor,
       checkPosition,
+      checkSide,
       item,
       advancedCheck,
       handleIdentification,

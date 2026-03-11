@@ -42,7 +42,7 @@ export class Shortcuts {
     private server: ServerEvents,
     private ocrWorker: OcrWorker
   ) {
-    this.areaTracker = new WidgetAreaTracker(server, overlay)
+    this.areaTracker = new WidgetAreaTracker(server, overlay, logger)
     this.clipboard = new HostClipboard(logger)
 
     this.poeWindow.on('active-change', (isActive) => {

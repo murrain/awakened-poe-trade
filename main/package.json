@@ -16,7 +16,7 @@
   },
   "main": "dist/main.js",
   "dependencies": {
-    "electron-overlay-window": "4.0.2",
+    "electron-overlay-window": "github:murrain/electron-overlay-window#master",
     "uiohook-napi": "1.5.4"
   },
   "devDependencies": {
