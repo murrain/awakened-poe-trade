@@ -23,6 +23,9 @@ export interface PriceCheckTrackArea {
 }
 
 export function computePriceCheckTrackArea (input: TrackAreaInput): PriceCheckTrackArea {
+  // Linux uiohook/global coordinates are physical desktop pixels.
+  // Ensure any Chromium fallback values are projected into that same space.
+  const linuxScale = getLinuxPixelScale(input.devicePixelRatio)
   const authoritativeBounds = isFiniteBounds(input.gameBounds)
     ? input.gameBounds
     : undefined
@@ -30,11 +33,11 @@ export function computePriceCheckTrackArea (input: TrackAreaInput): PriceCheckTr
     ? authoritativeBounds
     : input.overlayBounds
   const anchorBounds = input.isLinux
-    ? roundBounds((authoritativeBounds != null) ? anchorBoundsRaw : scaleBounds(anchorBoundsRaw, input.devicePixelRatio))
+    ? roundBounds((authoritativeBounds != null) ? anchorBoundsRaw : scaleBounds(anchorBoundsRaw, linuxScale))
     : anchorBoundsRaw
   const usedLinuxFallback = Boolean(input.isLinux && !authoritativeBounds)
 
-  const unitScale = input.isLinux ? input.devicePixelRatio : 1
+  const unitScale = input.isLinux ? linuxScale : 1
   const widgetWidth = input.isLinux
     ? Math.round(input.widgetWidthCss * unitScale)
     : input.widgetWidthCss
@@ -62,6 +65,10 @@ export function computePriceCheckTrackArea (input: TrackAreaInput): PriceCheckTr
     usedLinuxFallback,
     anchorBounds
   }
+}
+
+function getLinuxPixelScale (value: number): number {
+  return Number.isFinite(value) && value > 0 ? value : 1
 }
 
 function isFiniteBounds (value?: BoundsRect): value is BoundsRect {
