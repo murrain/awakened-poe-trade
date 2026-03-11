@@ -154,23 +154,51 @@ export default defineComponent({
       if (e.target !== 'price-check') return
 
       if (Host.isElectron && !e.focusOverlay) {
+        // On Linux, uiohook reports physical virtual-desktop pixels.
+        // Build tracked area in that same space using authoritative game bounds.
+        const isLinux = navigator.userAgent.includes('Linux')
+
         // everything in CSS pixels
         const width = 28.75 * AppConfig().fontSize
-        const screenX = ((e.position.x - window.screenX) > window.innerWidth / 2)
-          ? (window.screenX + window.innerWidth) - wm.poePanelWidth.value - width
-          : window.screenX + wm.poePanelWidth.value
+        const panelWidth = wm.poePanelWidth.value
+        const isRightSide = isLinux && e.gameBounds
+          ? (e.position.x - e.gameBounds.x) > e.gameBounds.width / 2
+          : (e.position.x - window.screenX) > window.innerWidth / 2
+
+        const cssArea = {
+          x: isRightSide
+            ? (window.screenX + window.innerWidth) - panelWidth - width
+            : window.screenX + panelWidth,
+          y: window.screenY,
+          width,
+          height: window.innerHeight
+        }
+
+        const linuxScaleX = (e.gameBounds?.width && window.innerWidth > 0)
+          ? e.gameBounds.width / window.innerWidth
+          : 1
+        const linuxScaleY = (e.gameBounds?.height && window.innerHeight > 0)
+          ? e.gameBounds.height / window.innerHeight
+          : 1
+
+        const trackArea = (isLinux && e.gameBounds)
+          ? {
+              x: isRightSide
+                ? (e.gameBounds.x + e.gameBounds.width) - Math.round((panelWidth + width) * linuxScaleX)
+                : e.gameBounds.x + Math.round(panelWidth * linuxScaleX),
+              y: e.gameBounds.y,
+              width: Math.round(width * linuxScaleX),
+              height: e.gameBounds.height
+            }
+          : cssArea
+
         MainProcess.sendEvent({
           name: 'OVERLAY->MAIN::track-area',
           payload: {
             holdKey: props.config.hotkeyHold,
-            closeThreshold: 2.5 * AppConfig().fontSize,
+            closeThreshold: isLinux ? (2.5 * AppConfig().fontSize * linuxScaleY) : (2.5 * AppConfig().fontSize),
             from: e.position,
-            area: {
-              x: screenX,
-              y: window.screenY,
-              width,
-              height: window.innerHeight
-            },
+            area: trackArea,
             dpr: window.devicePixelRatio
           }
         })

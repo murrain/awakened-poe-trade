@@ -147,6 +147,7 @@ type IpcItemText =
     clipboard: string
     item?: unknown
     position: { x: number, y: number }
+    gameBounds?: { x: number, y: number, width: number, height: number }
     focusOverlay: boolean
   }>
 
