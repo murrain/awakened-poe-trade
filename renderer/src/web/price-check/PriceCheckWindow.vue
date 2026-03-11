@@ -30,7 +30,7 @@
       <div class="grow layout-column min-h-0 bg-gray-800">
         <background-info />
         <check-position-circle v-if="showCheckPos"
-          :position="checkPosition" style="z-index: -1;" />
+          :position="checkPosition" :origin="trackAnchor" style="z-index: -1;" />
         <template v-if="item?.isErr()">
           <ui-error-box class="m-4">
             <template #name>{{ t(item.error.name) }}</template>
@@ -86,6 +86,7 @@ import CheckPositionCircle from './CheckPositionCircle.vue'
 import AppTitleBar from '@/web/ui/AppTitlebar.vue'
 import ItemQuickPrice from '@/web/ui/ItemQuickPrice.vue'
 import { PriceCheckWidget, WidgetManager, WidgetSpec } from '../overlay/interfaces'
+import { computePriceCheckTrackArea } from './track-area'
 
 type ParseError = { name: string; message: string; rawText: ParsedItem['rawText'] }
 
@@ -149,40 +150,52 @@ export default defineComponent({
     const item = shallowRef<null | Result<ParsedItem, ParseError>>(null)
     const advancedCheck = shallowRef(false)
     const checkPosition = shallowRef({ x: 1, y: 1 })
-    // Stored so clickPosition can use the same reliable origin as track-area.
-    const lastGameBounds = shallowRef<{ x: number, y: number, width: number, height: number } | undefined>(undefined)
+    const checkSide = shallowRef<'stash' | 'inventory'>('stash')
+    const trackAnchor = shallowRef({
+      x: window.screenX,
+      y: window.screenY,
+      width: window.innerWidth,
+      height: window.innerHeight
+    })
+    const isLinux = navigator.userAgent.includes('Linux')
+
 
     MainProcess.onEvent('MAIN->CLIENT::item-text', (e) => {
       if (e.target !== 'price-check') return
 
       if (Host.isElectron && !e.focusOverlay) {
-        const dpr = window.devicePixelRatio
-        const gb = e.gameBounds
-        lastGameBounds.value = gb
+        const trackArea = computePriceCheckTrackArea({
+          cursor: e.position,
+          gameBounds: e.gameBounds,
+          overlayBounds: {
+            x: window.screenX,
+            y: window.screenY,
+            width: window.innerWidth,
+            height: window.innerHeight
+          },
+          panelWidthCss: wm.poePanelWidth.value,
+          widgetWidthCss: 28.75 * AppConfig().fontSize,
+          devicePixelRatio: window.devicePixelRatio,
+          isLinux
+        })
 
-        // All area coords are in X11 physical pixels to match uiohook.
-        // gameBounds comes from xcb and is reliable across multi-monitor setups,
-        // unlike window.screenX/Y which can report 0 for override-redirect overlay
-        // windows when a secondary monitor is to the left of the primary.
-        // Fall back to CSS-pixel window coords (multiplied by dpr) on non-Linux
-        // where gameBounds is not sent.
-        const originX /* physical px */ = gb ? gb.x : Math.round(window.screenX * dpr)
-        const originY /* physical px */ = gb ? gb.y : Math.round(window.screenY * dpr)
-        const totalWidth /* physical px */ = gb ? gb.width : Math.round(window.innerWidth * dpr)
-        const totalHeight /* physical px */ = gb ? gb.height : Math.round(window.innerHeight * dpr)
-        const width /* physical px */ = Math.round(28.75 * AppConfig().fontSize * dpr)
-        const panelWidth /* physical px */ = Math.round(wm.poePanelWidth.value * dpr)
+        trackAnchor.value = trackArea.anchorBounds
+        checkSide.value = trackArea.side
 
-        // e.position is DIP (from screen.getCursorScreenPoint). Convert the
-        // physical origin to DIP for the half-screen comparison.
-        const originXDip = originX / dpr
-        const totalWidthDip = totalWidth / dpr
-        const cursorInRightHalf = (e.position.x - originXDip) > totalWidthDip / 2
+        if (isLinux && AppConfig().logKeys) {
+          const source = trackArea.usedLinuxFallback ? 'chromium-fallback' : 'authoritative-game-bounds'
+          console.info('[PriceCheck][Linux] register track-area', {
+            source,
+            cursor: e.position,
+            anchorBounds: trackArea.anchorBounds,
+            area: trackArea.area,
+            dpr: window.devicePixelRatio
+          })
+          if (trackArea.usedLinuxFallback) {
+            console.warn('[PriceCheck][Linux] game bounds unavailable, using Chromium fallback for track-area')
+          }
+        }
 
-        // areaX is in physical px — uiohook compares against physical coords.
-        const areaX = cursorInRightHalf
-          ? (originX + totalWidth) - panelWidth - width
-          : originX + panelWidth
 
         MainProcess.sendEvent({
           name: 'OVERLAY->MAIN::track-area',
@@ -190,8 +203,9 @@ export default defineComponent({
             holdKey: props.config.hotkeyHold,
             closeThreshold: 2.5 * AppConfig().fontSize,
             from: e.position,
-            area: { x: areaX, y: originY, width, height: totalHeight },
-            dpr
+            area: trackArea.area,
+            dpr: window.devicePixelRatio
+
           }
         })
       }
@@ -242,16 +256,8 @@ export default defineComponent({
       if (isBrowserShown.value) {
         return 'inventory'
       } else {
-        // Use lastGameBounds for the origin when available so this stays
-        // consistent with the track-area calculation. Falls back to
-        // window.screenX/Y for non-Linux where gameBounds is not sent.
-        const gb = lastGameBounds.value
-        const midX = gb
-          ? gb.x / window.devicePixelRatio + gb.width / window.devicePixelRatio / 2
-          : window.screenX + window.innerWidth / 2
-        return checkPosition.value.x > midX
-          ? 'inventory'
-          : 'stash'
+        return checkSide.value
+
           // or {chat, vendor, center of screen}
       }
     })
@@ -307,7 +313,9 @@ export default defineComponent({
       stableOrbCost,
       xchgRateLoading,
       showCheckPos,
+      trackAnchor,
       checkPosition,
+      checkSide,
       item,
       advancedCheck,
       handleIdentification,

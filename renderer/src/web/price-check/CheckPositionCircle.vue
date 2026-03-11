@@ -21,12 +21,13 @@ import { computed } from 'vue'
 
 const props = defineProps<{
   position: { x: number, y: number }
+  origin: { x: number, y: number }
 }>()
 
 const relativePos = computed(() => {
   return {
-    top: `calc(${props.position.y - window.screenY}px - 2.5rem)`,
-    left: `calc(${props.position.x - window.screenX}px - 2.5rem)`
+    top: `calc(${props.position.y - props.origin.y}px - 2.5rem)`,
+    left: `calc(${props.position.x - props.origin.x}px - 2.5rem)`
   }
 })
 </script>
