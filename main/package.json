@@ -16,7 +16,7 @@
   },
   "main": "dist/main.js",
   "dependencies": {
-    "electron-overlay-window": "git+ssh://git@github.com/murrain/electron-overlay-window.git#feature/x11-input-shape",
+    "electron-overlay-window": "github:murrain/electron-overlay-window#feature/x11-input-shape",
     "uiohook-napi": "1.5.4"
   },
   "devDependencies": {
