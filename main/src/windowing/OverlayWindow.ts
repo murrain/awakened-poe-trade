@@ -81,6 +81,13 @@ export class OverlayWindow {
       shell.openExternal(details.url)
       return { action: 'deny' }
     })
+
+    this.window.on('focus', () => {
+      this.logger.write('debug [Overlay] BrowserWindow: focus')
+    })
+    this.window.on('blur', () => {
+      this.logger.write('debug [Overlay] BrowserWindow: blur')
+    })
   }
 
   loadAppPage (port: number) {
@@ -102,6 +109,7 @@ export class OverlayWindow {
 
   assertOverlayActive = () => {
     if (!this.isInteractable) {
+      this.logger.write('debug [Overlay] assertOverlayActive: activating')
       this.isInteractable = true
       OverlayController.activateOverlay()
       this.poeWindow.isActive = false
@@ -110,6 +118,7 @@ export class OverlayWindow {
 
   assertGameActive = () => {
     if (this.isInteractable) {
+      this.logger.write('debug [Overlay] assertGameActive: deactivating')
       this.isInteractable = false
       OverlayController.focusTarget()
       this.poeWindow.isActive = true
@@ -184,8 +193,10 @@ export class OverlayWindow {
 
   private handlePoeWindowActiveChange = (isActive: boolean) => {
     if (isActive && this.isInteractable) {
+      this.logger.write('debug [Overlay] game regained focus while interactable, deactivating overlay')
       this.isInteractable = false
     }
+    this.logger.write(`debug [Overlay] focus-change: game=${isActive} overlay=${this.isInteractable}`)
     this.server.sendEventTo('broadcast', {
       name: 'MAIN->OVERLAY::focus-change',
       payload: {
