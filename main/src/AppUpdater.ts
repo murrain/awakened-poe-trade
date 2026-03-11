@@ -31,6 +31,12 @@ export class AppUpdater {
       }
     })
 
+    autoUpdater.setFeedURL({
+      provider: 'github',
+      owner: 'murrain',
+      repo: 'awakened-poe-trade'
+    })
+
     // https://www.electron.build/configuration/nsis.html#portable
     autoUpdater.autoDownload = !process.env.PORTABLE_EXECUTABLE_DIR
 

@@ -66,6 +66,8 @@ export type IpcEvent =
   IpcFocusGame |
   IpcHideExclusiveWidget |
   IpcTrackArea |
+  IpcSetInputRegions |
+  IpcDebugLog |
   // events used by any type of Client:
   IpcSaveConfig |
   IpcUpdaterState |
@@ -112,6 +114,21 @@ type IpcTrackArea =
     dpr: number
   }>
 
+// Renderer tells main process which rectangular regions of the overlay should
+// accept mouse input. Regions use X11 device pixel coordinates (CSS pixels *
+// devicePixelRatio) relative to the window origin. On Linux, main forwards
+// these to OverlayController.setInputRegions() which sets the X11 input shape
+// mask via xcb_shape_rectangles. Clicks outside these regions pass through.
+type IpcSetInputRegions =
+  Event<'OVERLAY->MAIN::set-input-regions', {
+    regions: Array<{ x: number, y: number, width: number, height: number }>
+  }>
+
+type IpcDebugLog =
+  Event<'OVERLAY->MAIN::debug-log', {
+    message: string
+  }>
+
 type IpcHostConfig =
   Event<'CLIENT->MAIN::update-host-config', HostConfig>
 
@@ -147,6 +164,11 @@ type IpcItemText =
     clipboard: string
     item?: unknown
     position: { x: number, y: number }
+    // Game window bounds in X11 physical pixels (from xcb). On Linux, use
+    // these instead of window.screenX/Y for track-area calculations so the
+    // coords are in the same space as uiohook mouse events and are reliable
+    // across multi-monitor setups.
+    gameBounds?: { x: number, y: number, width: number, height: number }
     focusOverlay: boolean
   }>
 

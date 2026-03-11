@@ -1,63 +1,125 @@
+# Automated Linux AppImage builder for our fork of awakened-poe-trade.
+#
+# Strategy: We maintain a `linux` branch with all our customizations committed
+# directly (custom electron-overlay-window, X11 input regions, auto-updater
+# feed URL, etc). This workflow has two jobs:
+#
+#   1. notify — runs on schedule, checks if upstream has a new release we
+#      haven't merged yet, and opens an issue if so.
+#   2. build  — runs on every push to `linux`, builds the AppImage, and
+#      creates/updates a GitHub release.
+#
+# Branch layout:
+#   master  — synced 1:1 with upstream (SnosMe/awakened-poe-trade)
+#   linux   — long-lived branch; merges from master, carries our patches
+#
+# Workflow:
+#   1. Upstream publishes a new release
+#   2. `notify` job detects it within 6 hours, opens an issue
+#   3. You merge upstream into `linux` locally, resolve any conflicts, push
+#   4. Push to `linux` triggers `build` job automatically
+#   5. AppImage is built and published as a GitHub release
+
 name: Linux AppImage
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - linux
   schedule:
+    # Check for new upstream releases every 6 hours
     - cron: '0 */6 * * *'
 
+# Prevent overlapping builds from racing to create release artifacts
+concurrency:
+  group: linux-build
+  cancel-in-progress: false
+
 jobs:
-  check-upstream:
+  # ── Upstream release detection ─────────────────────────────────────────
+  # Polls upstream for new releases and opens an issue if we're behind.
+  # Only runs on schedule, not on push.
+  notify:
+    if: github.event_name == 'schedule'
     runs-on: ubuntu-latest
-    outputs:
-      should_build: ${{ steps.check.outputs.should_build }}
-      upstream_tag: ${{ steps.check.outputs.upstream_tag }}
+    permissions:
+      contents: read
+      issues: write
     steps:
     - name: Check for new upstream release
-      id: check
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
         UPSTREAM_TAG=$(gh api repos/SnosMe/awakened-poe-trade/releases/latest --jq '.tag_name')
-        echo "upstream_tag=$UPSTREAM_TAG" >> "$GITHUB_OUTPUT"
-
-        EXISTING=$(gh api repos/${{ github.repository }}/releases/tags/${UPSTREAM_TAG}-linux 2>/dev/null && echo "yes" || echo "no")
-        if [ "$EXISTING" = "no" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-          echo "should_build=true" >> "$GITHUB_OUTPUT"
-        else
-          echo "should_build=false" >> "$GITHUB_OUTPUT"
+        if [ -z "$UPSTREAM_TAG" ] || [ "$UPSTREAM_TAG" = "null" ]; then
+          echo "::warning::Could not determine upstream release tag"
+          exit 0
         fi
 
+        # Check if we already have a matching release
+        HTTP_CODE=$(gh api repos/${{ github.repository }}/releases/tags/${UPSTREAM_TAG}-linux \
+          --silent -i 2>/dev/null | head -1 | awk '{print $2}')
+
+        if [ "$HTTP_CODE" = "200" ]; then
+          echo "Already up to date with upstream $UPSTREAM_TAG"
+          exit 0
+        fi
+
+        # Check if an issue already exists for this tag
+        EXISTING_ISSUE=$(gh issue list \
+          --repo ${{ github.repository }} \
+          --search "New upstream release: $UPSTREAM_TAG" \
+          --state open --json number --jq '.[0].number // empty')
+        if [ -n "$EXISTING_ISSUE" ]; then
+          echo "Issue #$EXISTING_ISSUE already open for $UPSTREAM_TAG"
+          exit 0
+        fi
+
+        ISSUE_FILE=$(mktemp)
+        cat > "$ISSUE_FILE" <<BODY
+        Upstream [\`$UPSTREAM_TAG\`](https://github.com/SnosMe/awakened-poe-trade/releases/tag/$UPSTREAM_TAG) is available but not yet merged into \`linux\`.
+
+        **To update:**
+        \`\`\`bash
+        git fetch upstream
+        git checkout linux
+        git merge $UPSTREAM_TAG
+        # resolve any conflicts
+        git push origin linux
+        \`\`\`
+
+        Pushing to \`linux\` will automatically trigger the AppImage build.
+        BODY
+        gh issue create \
+          --repo ${{ github.repository }} \
+          --title "New upstream release: $UPSTREAM_TAG" \
+          --body-file "$ISSUE_FILE"
+        rm -f "$ISSUE_FILE"
+
+  # ── AppImage build ─────────────────────────────────────────────────────
+  # Builds on every push to `linux` and on manual dispatch.
+  # The `linux` branch already contains all our patches, so no merging
+  # or patching happens here — just a clean build from the branch as-is.
   build:
-    needs: check-upstream
-    if: needs.check-upstream.outputs.should_build == 'true'
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-22.04
+    timeout-minutes: 30
     permissions:
       contents: write
     steps:
-    - name: Checkout upstream at tag
+    - name: Checkout linux branch
       uses: actions/checkout@v4
       with:
-        repository: SnosMe/awakened-poe-trade
-        ref: ${{ needs.check-upstream.outputs.upstream_tag }}
+        ref: linux
+
+    # electron-overlay-window's native addon needs xcb-shape headers to compile
+    - name: Install native build dependencies
+      run: sudo apt-get update && sudo apt-get install -y libxcb-shape0-dev
 
     - uses: actions/setup-node@v4
       with:
         node-version: 20
-
-    - name: Patch dependencies and updater
-      run: |
-        cd main
-        node -e "
-          const fs = require('fs');
-          const pkg = require('./package.json');
-          pkg.dependencies['electron-overlay-window'] = 'github:murrain/electron-overlay-window';
-          pkg.repository.url = 'https://github.com/murrain/awakened-poe-trade.git';
-          fs.writeFileSync('./package.json', JSON.stringify(pkg, null, 2) + '\n');
-          let updater = fs.readFileSync('src/AppUpdater.ts', 'utf8');
-          const inject = \"    autoUpdater.setFeedURL({ provider: 'github', owner: 'murrain', repo: 'awakened-poe-trade' })\n\";
-          updater = updater.replace('// https://www.electron.build', inject + '    // https://www.electron.build');
-          fs.writeFileSync('src/AppUpdater.ts', updater);
-        "
 
     - name: Build renderer
       run: |
@@ -69,7 +131,7 @@ jobs:
     - name: Build main
       run: |
         cd main
-        npm install
+        npm ci
         npm run build
 
     - name: Package AppImage
@@ -79,15 +141,64 @@ jobs:
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Create release with update metadata
+    - name: Verify build artifacts
+      run: |
+        ls -la main/dist/*.AppImage main/dist/latest-linux.yml
+        cat main/dist/latest-linux.yml
+
+    # Determine the version for the release tag. Uses the version from
+    # main/package.json which tracks the upstream version number.
+    - name: Determine version
+      id: version
+      run: |
+        VERSION=$(node -p "require('./main/package.json').version")
+        echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+        echo "Building version $VERSION"
+
+    # Create or update the release. Uses --clobber to replace artifacts
+    # if the release already exists (e.g. from a re-push after fixing
+    # a patch on the same upstream version).
+    - name: Create release
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        UPSTREAM_TAG: ${{ needs.check-upstream.outputs.upstream_tag }}
+        VERSION: ${{ steps.version.outputs.version }}
       run: |
-        gh release create "${UPSTREAM_TAG}-linux" \
+        TAG="v${VERSION}-linux"
+
+        NOTES_FILE=$(mktemp)
+        cat > "$NOTES_FILE" <<'HEADER'
+        Unofficial Linux build of [Awakened PoE Trade](https://github.com/SnosMe/awakened-poe-trade) with fixes for Linux.
+
+        ## What's improved for Linux
+
+        - **Overlay no longer blocks your game** — you can click through the overlay everywhere except on the actual widgets. No more invisible walls eating your clicks.
+        - **No more mouse stealing** — the overlay won't randomly grab your mouse focus while you're playing, so you don't have to alt-tab back into the game.
+        - **Automatic updates** — you'll get notified when new builds are available, just like the Windows version.
+
+        ---
+
+        ## What's new in this upstream release
+
+        HEADER
+
+        # Try to fetch upstream release notes for this version
+        UPSTREAM_BODY=$(gh api repos/SnosMe/awakened-poe-trade/releases/tags/"v${VERSION}" --jq '.body // ""' 2>/dev/null || echo "")
+        if [ -n "$UPSTREAM_BODY" ]; then
+          printf '%s\n' "$UPSTREAM_BODY" >> "$NOTES_FILE"
+        else
+          echo "See [upstream releases](https://github.com/SnosMe/awakened-poe-trade/releases) for details." >> "$NOTES_FILE"
+        fi
+
+        # Delete existing release for this tag if present (re-build case)
+        gh release delete "$TAG" --repo ${{ github.repository }} --yes 2>/dev/null || true
+        git push origin --delete "$TAG" 2>/dev/null || true
+
+        gh release create "$TAG" \
           --repo ${{ github.repository }} \
-          --title "Awakened-PoE-Trade-${UPSTREAM_TAG}-linux" \
-          --notes "Automated Linux AppImage build of upstream ${UPSTREAM_TAG} with patched electron-overlay-window (pointer grab fix)." \
+          --title "Awakened PoE Trade v${VERSION} (Linux)" \
+          --notes-file "$NOTES_FILE" \
           --latest \
           main/dist/*.AppImage \
           main/dist/latest-linux.yml
+
+        rm -f "$NOTES_FILE"

@@ -16,7 +16,7 @@
       <span :class="$style.patronsLine">{{ patronsString[1] }}</span>
     </div>
   </div>
-  <div :class="$style.window" class="grow layout-column" :onMouseenter="hidePodium">
+  <div :class="$style.window" class="grow layout-column" :onMouseenter="hidePodium" data-input-region>
     <AppTitleBar @close="cancel" :title="t('settings.title')" />
     <div class="flex grow min-h-0">
       <div class="pl-2 pt-2 bg-gray-900 flex flex-col gap-1" style="min-width: 10rem;">
