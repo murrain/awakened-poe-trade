@@ -53,12 +53,21 @@ function fmtTime (millis: number) {
   return DateTime.fromMillis(millis).toRelative({ style: 'long' }) ?? 'n/a'
 }
 
-function upstreamReleaseTagFromVersion (version: string): string {
-  const [major, minor, patch] = version.split('.')
-  const patchNum = Number.parseInt(patch ?? '', 10)
-  const upstreamPatch = Number.isFinite(patchNum) && patchNum >= 1000
-    ? Math.floor(patchNum / 1000)
-    : patch
+function deriveUpstreamTagFromForkVersion (version: string): string {
+  const [major, minor, patchStr] = version.split('.')
+
+  if (!major || !minor || !patchStr) {
+    throw new Error(`Invalid version: ${version}`)
+  }
+
+  const upstreamPatchStr = patchStr.length > 3
+    ? patchStr.slice(0, -3)
+    : patchStr
+
+  const upstreamPatch = Number.parseInt(upstreamPatchStr, 10)
+  if (!Number.isFinite(upstreamPatch)) {
+    throw new Error(`Invalid patch version: ${version}`)
+  }
 
   return `v${major}.${minor}.${upstreamPatch}`
 }
@@ -68,6 +77,17 @@ export default defineComponent({
   inheritAttrs: false,
   setup () {
     const { t } = useI18n()
+    const version = Host.version
+
+    const releaseNotesUrl = computed(() => {
+      const fallback = 'https://github.com/SnosMe/awakened-poe-trade/releases'
+      try {
+        const tag = deriveUpstreamTagFromForkVersion(version.value)
+        return `https://api.github.com/repos/SnosMe/awakened-poe-trade/releases/tags/${tag}`
+      } catch {
+        return fallback
+      }
+    })
 
     const info = computed(() => {
       const rawInfo = Host.updateInfo.value
@@ -92,11 +112,8 @@ export default defineComponent({
     return {
       t,
       info,
-      version: Host.version,
-      releaseNotesUrl: computed(() => {
-        const releaseTag = upstreamReleaseTagFromVersion(Host.version.value)
-        return `https://github.com/SnosMe/awakened-poe-trade/releases/tag/${releaseTag}`
-      })
+      releaseNotesUrl,
+      version
     }
   }
 })
