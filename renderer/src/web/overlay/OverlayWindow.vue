@@ -253,40 +253,51 @@ export default defineComponent({
     })
 
     // --- X11 input shape region tracking ---
-    // On Linux, the overlay window is always fullscreen and click-through by
-    // default. We need to tell the native layer exactly which rectangular
-    // regions should accept mouse input (i.e. where visible widgets are).
-    // We recalculate whenever visibility or window size changes, debounced
-    // to avoid flooding the IPC channel during rapid transitions.
+    // On Linux, the overlay is a fullscreen transparent window. We use X11
+    // input shape masks so only the actual widget content areas capture
+    // mouse input — everything else passes through to the game.
+    //
+    // Widget root elements (#widget-N) are full-screen positioned wrappers.
+    // The actual interactive content is marked with data-input-region
+    // attributes (set in Widget.vue, PriceCheckWindow, SettingsWindow).
+    // We measure those elements to get accurate clickable bounds.
+    //
+    // Timing: we debounce 50ms to coalesce rapid visibility changes, then
+    // use nextTick (wait for Vue DOM flush) + requestAnimationFrame (wait
+    // for browser layout) before measuring, so getBoundingClientRect()
+    // returns the final rendered positions.
     if (Host.isElectron && navigator.platform.startsWith('Linux')) {
       let inputRegionTimer: ReturnType<typeof setTimeout> | null = null
       let inputRegionRaf: number | null = null
 
       function updateInputRegions () {
-        // Wait for Vue to flush DOM updates, then wait one more frame so the
-        // browser has finished layout. Only then can getBoundingClientRect()
-        // return accurate values for the newly-shown/hidden widgets.
         nextTick(() => {
           inputRegionRaf = requestAnimationFrame(() => {
             inputRegionRaf = null
             const regions: Array<{ x: number, y: number, width: number, height: number }> = []
+            const dpr = window.devicePixelRatio || 1
 
             for (const entry of visibilityState.value) {
               if (!entry.isVisible) continue
               const el = document.getElementById(`widget-${entry.wmId}`)
               if (!el) continue
-              const rect = el.getBoundingClientRect()
-              // Skip zero-size elements (collapsed or not yet laid out)
-              if (rect.width <= 0 || rect.height <= 0) continue
-              // On Linux, CSS pixels from getBoundingClientRect() map directly
-              // to window-local coordinates — no devicePixelRatio scaling needed.
-              // This matches how WidgetAreaTracker handles Linux (raw values).
-              regions.push({
-                x: Math.round(rect.x),
-                y: Math.round(rect.y),
-                width: Math.round(rect.width),
-                height: Math.round(rect.height)
-              })
+              const contentEls = el.querySelectorAll('[data-input-region]')
+              for (const target of contentEls) {
+                const rect = target.getBoundingClientRect()
+                if (rect.width <= 0 || rect.height <= 0) continue
+                // xcb_shape_rectangles operates in X11 device pixels,
+                // while getBoundingClientRect returns CSS pixels.
+                // Multiply by devicePixelRatio for HiDPI displays.
+                // Clamp negative coords to 0 — elements mid-animation
+                // (e.g. SettingsWindow's slideInDown) report their
+                // animated position, but we want the final resting spot.
+                regions.push({
+                  x: Math.round(Math.max(0, rect.x) * dpr),
+                  y: Math.round(Math.max(0, rect.y) * dpr),
+                  width: Math.round(rect.width * dpr),
+                  height: Math.round(rect.height * dpr)
+                })
+              }
             }
 
             Host.sendEvent({
@@ -299,12 +310,11 @@ export default defineComponent({
 
       function scheduleInputRegionUpdate () {
         if (inputRegionTimer != null) clearTimeout(inputRegionTimer)
+        if (inputRegionRaf != null) { cancelAnimationFrame(inputRegionRaf); inputRegionRaf = null }
         inputRegionTimer = setTimeout(updateInputRegions, 50)
       }
 
-      // Recalculate when widgets are shown/hidden or the window is resized.
-      // The initial call ensures the shape mask is set on startup if any
-      // widgets are already visible from persisted config.
+      // visibilityState depends on active, so watching it covers both.
       watch(visibilityState, scheduleInputRegionUpdate, { immediate: true })
       watch(size, scheduleInputRegionUpdate)
 
@@ -326,7 +336,13 @@ export default defineComponent({
       }
     }
 
+    const isLinuxOverlay = Host.isElectron && navigator.platform.startsWith('Linux')
+
     const overlayBackground = computed<string | undefined>(() => {
+      // On Linux, X11 input shape masks handle click-through at the window
+      // manager level — clicks outside widget regions never reach the overlay.
+      // The semi-transparent backdrop would just obscure the game for no reason.
+      if (isLinuxOverlay) return undefined
       if (!active.value) return undefined
       return AppConfig().overlayBackground
     })

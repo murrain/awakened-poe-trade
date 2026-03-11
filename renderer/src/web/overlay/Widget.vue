@@ -1,6 +1,6 @@
 <template>
   <div @mousedown="handleMouseDown">
-    <div :class="[$style.widget, { 'opacity-75': isMoving }]" :style="widgetPosition">
+    <div :class="[$style.widget, { 'opacity-75': isMoving }]" :style="widgetPosition" data-input-region>
       <slot :isEditing="isEditing" :isMoving="isMoving" />
       <div class="absolute px-1" :style="actionsPosition" style="background: rgba(0,0,0,0.01);">
         <div :class="$style.actionsPanel">

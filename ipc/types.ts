@@ -114,9 +114,10 @@ type IpcTrackArea =
   }>
 
 // Renderer tells main process which rectangular regions of the overlay should
-// accept mouse input. Regions use CSS pixel coordinates relative to the window
-// origin. On Linux, main forwards these to OverlayController.setInputRegions()
-// which sets the X11 input shape mask. Clicks outside these regions pass through.
+// accept mouse input. Regions use X11 device pixel coordinates (CSS pixels *
+// devicePixelRatio) relative to the window origin. On Linux, main forwards
+// these to OverlayController.setInputRegions() which sets the X11 input shape
+// mask via xcb_shape_rectangles. Clicks outside these regions pass through.
 type IpcSetInputRegions =
   Event<'OVERLAY->MAIN::set-input-regions', {
     regions: Array<{ x: number, y: number, width: number, height: number }>
