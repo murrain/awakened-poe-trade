@@ -5,7 +5,7 @@
       <p class="text-base">Awakened PoE Trade</p>
       <p class="">{{ t('app.version', [version]) }}</p>
       <div class="flex gap-2">
-        <a class="border-b" href="https://github.com/SnosMe/awakened-poe-trade/releases" target="_blank">{{ t('app.release_notes') }}</a>
+        <a class="border-b" :href="releaseNotesUrl" target="_blank">{{ t('app.release_notes') }}</a>
         <a class="border-b" href="https://github.com/SnosMe/awakened-poe-trade/issues" target="_blank">{{ t('app.report_bug') }}</a>
       </div>
     </div>
@@ -53,6 +53,16 @@ function fmtTime (millis: number) {
   return DateTime.fromMillis(millis).toRelative({ style: 'long' }) ?? 'n/a'
 }
 
+function upstreamReleaseTagFromVersion (version: string): string {
+  const [major, minor, patch] = version.split('.')
+  const patchNum = Number.parseInt(patch ?? '', 10)
+  const upstreamPatch = Number.isFinite(patchNum) && patchNum >= 1000
+    ? Math.floor(patchNum / 1000)
+    : patch
+
+  return `v${major}.${minor}.${upstreamPatch}`
+}
+
 export default defineComponent({
   name: 'settings.about',
   inheritAttrs: false,
@@ -82,7 +92,11 @@ export default defineComponent({
     return {
       t,
       info,
-      version: Host.version
+      version: Host.version,
+      releaseNotesUrl: computed(() => {
+        const releaseTag = upstreamReleaseTagFromVersion(Host.version.value)
+        return `https://github.com/SnosMe/awakened-poe-trade/releases/tag/${releaseTag}`
+      })
     }
   }
 })
