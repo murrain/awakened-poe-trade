@@ -30,14 +30,26 @@ export class OverlayWindow {
     // and sends them here so that only those areas receive mouse input.
     // Linux only — the renderer also guards the send, but we enforce the
     // platform check here independently so neither side relies on the other.
+    let lastRegionSummary = ''
     this.server.onEventAnyClient('OVERLAY->MAIN::set-input-regions', (e) => {
       if (process.platform === 'linux') {
         try {
           OverlayController.setInputRegions(e.regions)
+          const summary = e.regions.length === 0
+            ? 'none'
+            : e.regions.map(r => `(${r.x},${r.y} ${r.width}x${r.height})`).join(' ')
+          if (summary !== lastRegionSummary) {
+            lastRegionSummary = summary
+            this.logger.write(`debug [Overlay] setInputRegions: ${e.regions.length} region(s): ${summary}`)
+          }
         } catch (err) {
           this.logger.write(`warn [Overlay] setInputRegions failed: ${err}`)
         }
       }
+    })
+
+    this.server.onEventAnyClient('OVERLAY->MAIN::debug-log', (e) => {
+      this.logger.write(`debug [renderer] ${e.message}`)
     })
 
     if (process.argv.includes('--no-overlay')) return

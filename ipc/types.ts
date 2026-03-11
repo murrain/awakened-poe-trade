@@ -67,6 +67,7 @@ export type IpcEvent =
   IpcHideExclusiveWidget |
   IpcTrackArea |
   IpcSetInputRegions |
+  IpcDebugLog |
   // events used by any type of Client:
   IpcSaveConfig |
   IpcUpdaterState |
@@ -123,6 +124,11 @@ type IpcSetInputRegions =
     regions: Array<{ x: number, y: number, width: number, height: number }>
   }>
 
+type IpcDebugLog =
+  Event<'OVERLAY->MAIN::debug-log', {
+    message: string
+  }>
+
 type IpcHostConfig =
   Event<'CLIENT->MAIN::update-host-config', HostConfig>
 
@@ -159,6 +165,11 @@ type IpcItemText =
     item?: unknown
     position: { x: number, y: number }
     focusOverlay: boolean
+    // Game window bounds in X11 physical pixels (from xcb). On Linux, use
+    // these instead of window.screenX/Y for track-area calculations so the
+    // coords are in the same space as uiohook mouse events and are reliable
+    // across multi-monitor setups.
+    gameBounds?: { x: number, y: number, width: number, height: number }
   }>
 
 type IpcOcrText =

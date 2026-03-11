@@ -149,29 +149,49 @@ export default defineComponent({
     const item = shallowRef<null | Result<ParsedItem, ParseError>>(null)
     const advancedCheck = shallowRef(false)
     const checkPosition = shallowRef({ x: 1, y: 1 })
+    // Stored so clickPosition can use the same reliable origin as track-area.
+    const lastGameBounds = shallowRef<{ x: number, y: number, width: number, height: number } | undefined>(undefined)
 
     MainProcess.onEvent('MAIN->CLIENT::item-text', (e) => {
       if (e.target !== 'price-check') return
 
       if (Host.isElectron && !e.focusOverlay) {
-        // everything in CSS pixels
-        const width = 28.75 * AppConfig().fontSize
-        const screenX = ((e.position.x - window.screenX) > window.innerWidth / 2)
-          ? (window.screenX + window.innerWidth) - wm.poePanelWidth.value - width
-          : window.screenX + wm.poePanelWidth.value
+        const dpr = window.devicePixelRatio
+        const gb = e.gameBounds
+        lastGameBounds.value = gb
+
+        // All area coords are in X11 physical pixels to match uiohook.
+        // gameBounds comes from xcb and is reliable across multi-monitor setups,
+        // unlike window.screenX/Y which can report 0 for override-redirect overlay
+        // windows when a secondary monitor is to the left of the primary.
+        // Fall back to CSS-pixel window coords (multiplied by dpr) on non-Linux
+        // where gameBounds is not sent.
+        const originX /* physical px */ = gb ? gb.x : Math.round(window.screenX * dpr)
+        const originY /* physical px */ = gb ? gb.y : Math.round(window.screenY * dpr)
+        const totalWidth /* physical px */ = gb ? gb.width : Math.round(window.innerWidth * dpr)
+        const totalHeight /* physical px */ = gb ? gb.height : Math.round(window.innerHeight * dpr)
+        const width /* physical px */ = Math.round(28.75 * AppConfig().fontSize * dpr)
+        const panelWidth /* physical px */ = Math.round(wm.poePanelWidth.value * dpr)
+
+        // e.position is DIP (from screen.getCursorScreenPoint). Convert the
+        // physical origin to DIP for the half-screen comparison.
+        const originXDip = originX / dpr
+        const totalWidthDip = totalWidth / dpr
+        const cursorInRightHalf = (e.position.x - originXDip) > totalWidthDip / 2
+
+        // areaX is in physical px — uiohook compares against physical coords.
+        const areaX = cursorInRightHalf
+          ? (originX + totalWidth) - panelWidth - width
+          : originX + panelWidth
+
         MainProcess.sendEvent({
           name: 'OVERLAY->MAIN::track-area',
           payload: {
             holdKey: props.config.hotkeyHold,
             closeThreshold: 2.5 * AppConfig().fontSize,
             from: e.position,
-            area: {
-              x: screenX,
-              y: window.screenY,
-              width,
-              height: window.innerHeight
-            },
-            dpr: window.devicePixelRatio
+            area: { x: areaX, y: originY, width, height: totalHeight },
+            dpr
           }
         })
       }
@@ -222,7 +242,14 @@ export default defineComponent({
       if (isBrowserShown.value) {
         return 'inventory'
       } else {
-        return checkPosition.value.x > (window.screenX + window.innerWidth / 2)
+        // Use lastGameBounds for the origin when available so this stays
+        // consistent with the track-area calculation. Falls back to
+        // window.screenX/Y for non-Linux where gameBounds is not sent.
+        const gb = lastGameBounds.value
+        const midX = gb
+          ? gb.x / window.devicePixelRatio + gb.width / window.devicePixelRatio / 2
+          : window.screenX + window.innerWidth / 2
+        return checkPosition.value.x > midX
           ? 'inventory'
           : 'stash'
           // or {chat, vendor, center of screen}

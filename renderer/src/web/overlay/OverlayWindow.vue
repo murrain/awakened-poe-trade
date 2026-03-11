@@ -269,6 +269,7 @@ export default defineComponent({
     if (Host.isElectron && navigator.platform.startsWith('Linux')) {
       let inputRegionTimer: ReturnType<typeof setTimeout> | null = null
       let inputRegionRaf: number | null = null
+      let loggedEnv = false
 
       function updateInputRegions () {
         nextTick(() => {
@@ -276,6 +277,18 @@ export default defineComponent({
             inputRegionRaf = null
             const regions: Array<{ x: number, y: number, width: number, height: number }> = []
             const dpr = window.devicePixelRatio || 1
+
+            if (!loggedEnv) {
+              loggedEnv = true
+              Host.sendEvent({
+                name: 'OVERLAY->MAIN::debug-log',
+                payload: {
+                  message: `renderer env: screenX=${window.screenX} screenY=${window.screenY}` +
+                    ` innerSize=${window.innerWidth}x${window.innerHeight}` +
+                    ` dpr=${dpr} platform=${navigator.platform}`
+                }
+              })
+            }
 
             for (const entry of visibilityState.value) {
               if (!entry.isVisible) continue

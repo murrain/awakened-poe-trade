@@ -42,7 +42,7 @@ export class Shortcuts {
     private server: ServerEvents,
     private ocrWorker: OcrWorker
   ) {
-    this.areaTracker = new WidgetAreaTracker(server, overlay)
+    this.areaTracker = new WidgetAreaTracker(server, overlay, logger)
     this.clipboard = new HostClipboard(logger)
 
     this.poeWindow.on('active-change', (isActive) => {
@@ -172,7 +172,7 @@ export class Shortcuts {
               this.areaTracker.removeListeners()
               this.server.sendEventTo('last-active', {
                 name: 'MAIN->CLIENT::item-text',
-                payload: { target: action.target, clipboard, position: pressPosition, focusOverlay: Boolean(action.focusOverlay) }
+                payload: { target: action.target, clipboard, position: pressPosition, focusOverlay: Boolean(action.focusOverlay), gameBounds: (process.platform === 'linux') ? this.poeWindow.bounds : undefined }
               })
               if (action.focusOverlay && this.overlay.wasUsedRecently) {
                 this.overlay.assertOverlayActive()
