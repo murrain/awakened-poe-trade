@@ -25,6 +25,20 @@ export class WidgetAreaTracker {
           width: Math.round(opts.area.width),
           height: Math.round(opts.area.height)
         })
+      } else if (process.platform === 'linux') {
+        // Linux invariant: track-area coordinates are already physical X11
+        // virtual-desktop pixels and are compared directly with uiohook.
+        // No DIP/CSS conversion is allowed in this path.
+        this.closeThreshold = Math.round(opts.closeThreshold)
+        this.from = normalizePoint(opts.from)
+        this.area = normalizeRect(opts.area)
+
+        console.info('[WidgetAreaTracker][Linux] register track-area', {
+          holdKey: opts.holdKey,
+          from: this.from,
+          area: this.area,
+          closeThreshold: this.closeThreshold
+        })
       } else {
         this.closeThreshold = opts.closeThreshold
         this.from = opts.from
@@ -76,4 +90,20 @@ function isPointInsideRect (point: Point, rect: Rectangle) {
     point.y > rect.y &&
     point.y < rect.y + rect.height
   )
+}
+
+function normalizePoint (point: Point): Point {
+  return {
+    x: Math.round(point.x),
+    y: Math.round(point.y)
+  }
+}
+
+function normalizeRect (rect: Rectangle): Rectangle {
+  return {
+    x: Math.round(rect.x),
+    y: Math.round(rect.y),
+    width: Math.round(rect.width),
+    height: Math.round(rect.height)
+  }
 }
