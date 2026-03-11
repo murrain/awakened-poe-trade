@@ -159,7 +159,6 @@ export default defineComponent({
     })
     const isLinux = navigator.userAgent.includes('Linux')
 
-
     MainProcess.onEvent('MAIN->CLIENT::item-text', (e) => {
       if (e.target !== 'price-check') return
 
@@ -195,7 +194,6 @@ export default defineComponent({
             console.warn('[PriceCheck][Linux] game bounds unavailable, using Chromium fallback for track-area')
           }
         }
-
 
         MainProcess.sendEvent({
           name: 'OVERLAY->MAIN::track-area',
@@ -257,7 +255,6 @@ export default defineComponent({
         return 'inventory'
       } else {
         return checkSide.value
-
           // or {chat, vendor, center of screen}
       }
     })
