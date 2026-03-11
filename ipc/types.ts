@@ -66,6 +66,7 @@ export type IpcEvent =
   IpcFocusGame |
   IpcHideExclusiveWidget |
   IpcTrackArea |
+  IpcSetInputRegions |
   // events used by any type of Client:
   IpcSaveConfig |
   IpcUpdaterState |
@@ -110,6 +111,15 @@ type IpcTrackArea =
     from: { x: number, y: number }
     area: { x: number, y: number, width: number, height: number }
     dpr: number
+  }>
+
+// Renderer tells main process which rectangular regions of the overlay should
+// accept mouse input. Regions use CSS pixel coordinates relative to the window
+// origin. On Linux, main forwards these to OverlayController.setInputRegions()
+// which sets the X11 input shape mask. Clicks outside these regions pass through.
+type IpcSetInputRegions =
+  Event<'OVERLAY->MAIN::set-input-regions', {
+    regions: Array<{ x: number, y: number, width: number, height: number }>
   }>
 
 type IpcHostConfig =

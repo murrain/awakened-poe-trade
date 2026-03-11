@@ -25,6 +25,21 @@ export class OverlayWindow {
       this.wasUsedRecently = e.isOverlay
     })
 
+    // Forward input region updates from the renderer to the native overlay.
+    // The renderer calculates which widget bounding boxes are currently visible
+    // and sends them here so that only those areas receive mouse input.
+    // Linux only — the renderer also guards the send, but we enforce the
+    // platform check here independently so neither side relies on the other.
+    this.server.onEventAnyClient('OVERLAY->MAIN::set-input-regions', (e) => {
+      if (process.platform === 'linux') {
+        try {
+          OverlayController.setInputRegions(e.regions)
+        } catch (err) {
+          this.logger.write(`warn [Overlay] setInputRegions failed: ${err}`)
+        }
+      }
+    })
+
     if (process.argv.includes('--no-overlay')) return
 
     this.window = new BrowserWindow({

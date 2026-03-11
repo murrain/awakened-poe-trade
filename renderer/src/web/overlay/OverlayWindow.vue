@@ -31,7 +31,7 @@
 </template>
 
 <script lang="ts">
-import { defineComponent, provide, shallowRef, watch, readonly, computed, onMounted, nextTick } from 'vue'
+import { defineComponent, provide, shallowRef, watch, readonly, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Host } from '@/web/background/IPC'
 import { Widget, WidgetManager } from './interfaces'
@@ -251,6 +251,69 @@ export default defineComponent({
       create,
       setFlag
     })
+
+    // --- X11 input shape region tracking ---
+    // On Linux, the overlay window is always fullscreen and click-through by
+    // default. We need to tell the native layer exactly which rectangular
+    // regions should accept mouse input (i.e. where visible widgets are).
+    // We recalculate whenever visibility or window size changes, debounced
+    // to avoid flooding the IPC channel during rapid transitions.
+    if (Host.isElectron && navigator.platform.startsWith('Linux')) {
+      let inputRegionTimer: ReturnType<typeof setTimeout> | null = null
+      let inputRegionRaf: number | null = null
+
+      function updateInputRegions () {
+        // Wait for Vue to flush DOM updates, then wait one more frame so the
+        // browser has finished layout. Only then can getBoundingClientRect()
+        // return accurate values for the newly-shown/hidden widgets.
+        nextTick(() => {
+          inputRegionRaf = requestAnimationFrame(() => {
+            inputRegionRaf = null
+            const regions: Array<{ x: number, y: number, width: number, height: number }> = []
+
+            for (const entry of visibilityState.value) {
+              if (!entry.isVisible) continue
+              const el = document.getElementById(`widget-${entry.wmId}`)
+              if (!el) continue
+              const rect = el.getBoundingClientRect()
+              // Skip zero-size elements (collapsed or not yet laid out)
+              if (rect.width <= 0 || rect.height <= 0) continue
+              // On Linux, CSS pixels from getBoundingClientRect() map directly
+              // to window-local coordinates — no devicePixelRatio scaling needed.
+              // This matches how WidgetAreaTracker handles Linux (raw values).
+              regions.push({
+                x: Math.round(rect.x),
+                y: Math.round(rect.y),
+                width: Math.round(rect.width),
+                height: Math.round(rect.height)
+              })
+            }
+
+            Host.sendEvent({
+              name: 'OVERLAY->MAIN::set-input-regions',
+              payload: { regions }
+            })
+          })
+        })
+      }
+
+      function scheduleInputRegionUpdate () {
+        if (inputRegionTimer != null) clearTimeout(inputRegionTimer)
+        inputRegionTimer = setTimeout(updateInputRegions, 50)
+      }
+
+      // Recalculate when widgets are shown/hidden or the window is resized.
+      // The initial call ensures the shape mask is set on startup if any
+      // widgets are already visible from persisted config.
+      watch(visibilityState, scheduleInputRegionUpdate, { immediate: true })
+      watch(size, scheduleInputRegionUpdate)
+
+      onUnmounted(() => {
+        if (inputRegionTimer != null) clearTimeout(inputRegionTimer)
+        if (inputRegionRaf != null) cancelAnimationFrame(inputRegionRaf)
+      })
+    }
+    // --- end input shape region tracking ---
 
     function handleBackgroundClick () {
       if (!Host.isElectron) {
