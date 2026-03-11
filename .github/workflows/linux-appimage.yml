@@ -167,17 +167,17 @@ jobs:
 
         NOTES_FILE=$(mktemp)
         cat > "$NOTES_FILE" <<'HEADER'
-        Linux AppImage with the following improvements over upstream:
+        Unofficial Linux build of [Awakened PoE Trade](https://github.com/SnosMe/awakened-poe-trade) with fixes for Linux.
 
-        ## Linux improvements
+        ## What's improved for Linux
 
-        - **Click-through on non-widget areas** — mouse clicks pass through the overlay directly to the game, except where widgets are visible (X11 input shape masks)
-        - **Pointer grab fix** — prevents the overlay from stealing mouse focus on X11 window managers
-        - **Auto-updater** — points to this fork so you receive future Linux builds automatically
+        - **Overlay no longer blocks your game** — you can click through the overlay everywhere except on the actual widgets. No more invisible walls eating your clicks.
+        - **No more mouse stealing** — the overlay won't randomly grab your mouse focus while you're playing, so you don't have to alt-tab back into the game.
+        - **Automatic updates** — you'll get notified when new builds are available, just like the Windows version.
 
         ---
 
-        ## Upstream changes
+        ## What's new in this upstream release
 
         HEADER
 

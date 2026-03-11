@@ -19,6 +19,7 @@ win:
   - "nsis"
   - "portable"
 linux:
+  artifactName: "Awakened.PoE.Trade-${version}-murrain.${ext}"
   target:
   - "AppImage"
 mac:
