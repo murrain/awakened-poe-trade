@@ -14,6 +14,7 @@ import type { ServerEvents } from '../server'
 
 type UiohookKeyT = keyof typeof UiohookKey
 const UiohookToName = Object.fromEntries(Object.entries(UiohookKey).map(([k, v]) => ([v, k])))
+const DEBUG_GEOMETRY = process.env.APOE_DEBUG_GEOMETRY === '1'
 
 export class Shortcuts {
   private actions: ShortcutAction[] = []
@@ -166,6 +167,19 @@ export class Shortcuts {
           const { action } = entry
 
           const pressPosition = screen.getCursorScreenPoint()
+          if (DEBUG_GEOMETRY) {
+            const gameBounds = this.poeWindow.bounds
+            const nearestDisplay = screen.getDisplayNearestPoint(pressPosition)
+            const displays = screen.getAllDisplays().map(serializeDisplay)
+            this.logger.write(
+              `debug [Geometry] copy-item:` +
+              ` target=${action.target}` +
+              ` cursor=(${pressPosition.x},${pressPosition.y})` +
+              ` nearestDisplay=${JSON.stringify(serializeDisplay(nearestDisplay))}` +
+              ` gameBounds=${formatBounds(gameBounds)}` +
+              ` displays=${JSON.stringify(displays)}`
+            )
+          }
 
           this.clipboard.readItemText()
             .then(clipboard => {
@@ -279,6 +293,27 @@ function eventToString (e: { keycode: number, ctrlKey: boolean, altKey: boolean,
   else if (shiftKey) code = `Shift + ${code}`
 
   return code
+}
+
+function formatBounds (bounds: GameWindow['bounds']) {
+  if (!bounds) return 'undefined'
+  return `(${bounds.x},${bounds.y} ${bounds.width}x${bounds.height})`
+}
+
+function serializeDisplay (display: Electron.Display) {
+  return {
+    id: display.id,
+    label: display.label,
+    scaleFactor: display.scaleFactor,
+    rotation: display.rotation,
+    internal: display.internal,
+    detected: display.detected,
+    nativeOrigin: display.nativeOrigin,
+    bounds: display.bounds,
+    workArea: display.workArea,
+    size: display.size,
+    workAreaSize: display.workAreaSize
+  }
 }
 
 function shortcutToElectron (shortcut: string) {
