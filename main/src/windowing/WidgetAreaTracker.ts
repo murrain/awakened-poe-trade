@@ -9,6 +9,7 @@ export class WidgetAreaTracker {
   private from!: Point
   private area!: Rectangle
   private closeThreshold!: number
+  private hasEnteredArea = false
   private debugMoveCount = 0
   private debugDownCount = 0
 
@@ -51,6 +52,7 @@ export class WidgetAreaTracker {
 
       this.debugMoveCount = 0
       this.debugDownCount = 0
+      this.hasEnteredArea = isPointInsideRect(this.from, this.area)
       this.logger.write(
         `debug [WidgetAreaTracker] track-area: from=(${this.from.x},${this.from.y})` +
         ` area=(${this.area.x},${this.area.y} ${this.area.width}x${this.area.height})` +
@@ -58,17 +60,20 @@ export class WidgetAreaTracker {
       )
 
       this.removeListeners()
+      this.overlay.armInputRegionReactivation()
       uIOhook.addListener('mousemove', this.handleMouseMove)
       uIOhook.addListener('mousedown', this.handleMouseDown)
     })
   }
 
   removeListeners () {
+    this.overlay.disarmInputRegionReactivation()
     uIOhook.removeListener('mousemove', this.handleMouseMove)
     uIOhook.removeListener('mousedown', this.handleMouseDown)
   }
 
   private readonly handleMouseMove = (e: UiohookMouseEvent) => {
+    const inside = isPointInsideRect(e, this.area)
     const modifier = e.ctrlKey ? 'Ctrl' : (e.altKey ? 'Alt' : undefined)
     if (!this.overlay.isInteractable && modifier !== this.holdKey) {
       const distance = Math.hypot(e.x - this.from.x, e.y - this.from.y)
@@ -79,7 +84,7 @@ export class WidgetAreaTracker {
         this.logger.write(
           `debug [WidgetAreaTracker] mousemove #${this.debugMoveCount}:` +
           ` pos=(${e.x},${e.y}) dist=${distance.toFixed(0)} threshold=${this.closeThreshold.toFixed(0)}` +
-          ` inArea=${isPointInsideRect(e, this.area)}`
+          ` inArea=${inside}`
         )
       }
       if (distance > this.closeThreshold) {
@@ -89,9 +94,11 @@ export class WidgetAreaTracker {
         })
         this.removeListeners()
       }
-    } else if (isPointInsideRect(e, this.area)) {
+    } else if (inside) {
+      this.hasEnteredArea = true
       this.overlay.assertOverlayActive()
     } else if (this.overlay.isInteractable) {
+      if (!this.hasEnteredArea) return
       this.removeListeners()
       this.overlay.assertGameActive()
     }
@@ -109,6 +116,9 @@ export class WidgetAreaTracker {
     if (inside) {
       this.removeListeners()
       this.overlay.assertOverlayActive()
+    } else if (this.overlay.isInteractable) {
+      this.removeListeners()
+      this.overlay.assertGameActive()
     }
   }
 }

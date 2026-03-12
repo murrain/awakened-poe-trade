@@ -166,14 +166,18 @@ export class Shortcuts {
         } else if (entry.action.type === 'copy-item') {
           const { action } = entry
 
-          const pressPosition = screen.getCursorScreenPoint()
+          const rawPressPosition = screen.getCursorScreenPoint()
+          const pressPosition = (process.platform === 'linux')
+            ? screen.dipToScreenPoint(rawPressPosition)
+            : rawPressPosition
           if (DEBUG_GEOMETRY) {
             const gameBounds = this.poeWindow.bounds
-            const nearestDisplay = screen.getDisplayNearestPoint(pressPosition)
+            const nearestDisplay = screen.getDisplayNearestPoint(rawPressPosition)
             const displays = screen.getAllDisplays().map(serializeDisplay)
             this.logger.write(
               `debug [Geometry] copy-item:` +
               ` target=${action.target}` +
+              ` rawCursor=(${rawPressPosition.x},${rawPressPosition.y})` +
               ` cursor=(${pressPosition.x},${pressPosition.y})` +
               ` nearestDisplay=${JSON.stringify(serializeDisplay(nearestDisplay))}` +
               ` gameBounds=${formatBounds(gameBounds)}` +
