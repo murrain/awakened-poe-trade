@@ -60,12 +60,14 @@ export class WidgetAreaTracker {
       )
 
       this.removeListeners()
+      this.overlay.armInputRegionReactivation()
       uIOhook.addListener('mousemove', this.handleMouseMove)
       uIOhook.addListener('mousedown', this.handleMouseDown)
     })
   }
 
   removeListeners () {
+    this.overlay.disarmInputRegionReactivation()
     uIOhook.removeListener('mousemove', this.handleMouseMove)
     uIOhook.removeListener('mousedown', this.handleMouseDown)
   }

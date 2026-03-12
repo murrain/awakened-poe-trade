@@ -9,6 +9,14 @@ files:
     filter: ["main.js", "vision.js"]
   - from: "../renderer/dist"
     to: "."
+  - from: "node_modules/uiohook-napi"
+    to: "node_modules/uiohook-napi"
+  - from: "node_modules/electron-overlay-window"
+    to: "node_modules/electron-overlay-window"
+  - from: "node_modules/node-gyp-build"
+    to: "node_modules/node-gyp-build"
+  - from: "node_modules/throttle-debounce"
+    to: "node_modules/throttle-debounce"
 extraMetadata:
   main: "main.js"
 nsis:
@@ -16,19 +24,19 @@ nsis:
   allowToChangeInstallationDirectory: true
 win:
   target:
-  - "nsis"
-  - "portable"
+    - "nsis"
+    - "portable"
 linux:
   artifactName: "Awakened.PoE.Trade-${version}-murrain.${ext}"
   target:
-  - "AppImage"
+    - "AppImage"
 mac:
   target:
-  - target: "dmg"
-    arch:
-    - "universal"
+    - target: "dmg"
+      arch:
+        - "universal"
   identity: null
   x64ArchFiles: "*"
 appImage:
   executableArgs:
-  - "--sandbox"
+    - "--sandbox"

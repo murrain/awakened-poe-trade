@@ -11,6 +11,7 @@ export class OverlayWindow {
   private window?: BrowserWindow
   private overlayKey: string = 'Shift + Space'
   private isOverlayKeyUsed = false
+  private allowInputRegionReactivation = false
 
   constructor (
     private server: ServerEvents,
@@ -20,6 +21,9 @@ export class OverlayWindow {
     this.server.onEventAnyClient('OVERLAY->MAIN::focus-game', this.assertGameActive)
     this.poeWindow.on('active-change', this.handlePoeWindowActiveChange)
     this.poeWindow.onAttach(this.handleOverlayAttached)
+    if (process.platform === 'linux') {
+      OverlayController.events.on('input-enter', this.handleOverlayInputEnter)
+    }
 
     this.server.onEventAnyClient('CLIENT->MAIN::used-recently', (e) => {
       this.wasUsedRecently = e.isOverlay
@@ -144,6 +148,14 @@ export class OverlayWindow {
     this.poeWindow.attach(this.window, windowTitle)
   }
 
+  armInputRegionReactivation () {
+    this.allowInputRegionReactivation = true
+  }
+
+  disarmInputRegionReactivation () {
+    this.allowInputRegionReactivation = false
+  }
+
   private handleExtraCommands = (event: Electron.Event, input: Electron.Input) => {
     if (input.type !== 'keyDown') return
 
@@ -194,6 +206,12 @@ export class OverlayWindow {
         payload: undefined
       })
     }
+  }
+
+  private handleOverlayInputEnter = () => {
+    if (!this.allowInputRegionReactivation || this.isInteractable) return
+    this.logger.write('debug [Overlay] input-enter: reactivating overlay')
+    this.assertOverlayActive()
   }
 
   private handlePoeWindowActiveChange = (isActive: boolean) => {
