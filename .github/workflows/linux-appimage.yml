@@ -113,6 +113,35 @@ jobs:
       with:
         ref: linux
 
+    # Bump the fork build suffix (last 3 digits of patch) unless the triggering
+    # commit was already a bump from the local pre-push hook. The pushed commit
+    # carries [skip ci] so it doesn't trigger a second workflow run.
+    - name: Bump fork build version
+      if: "!startsWith(github.event.head_commit.message, 'chore: bump fork build')"
+      run: |
+        VERSION=$(node -p "require('./main/package.json').version")
+        IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION"
+        if [[ ! "$PATCH" =~ ^[0-9]{4,}$ ]]; then
+          echo "::warning::patch segment '$PATCH' is not fork format — skipping auto-increment"
+          exit 0
+        fi
+        UPSTREAM_PATCH="${PATCH:0:${#PATCH}-3}"
+        SUFFIX="${PATCH: -3}"
+        NEW_SUFFIX=$(printf '%03d' $((10#$SUFFIX + 1)))
+        NEW_VERSION="${MAJOR}.${MINOR}.${UPSTREAM_PATCH}${NEW_SUFFIX}"
+        echo "Bumping fork build $VERSION → $NEW_VERSION"
+        node -e "
+          const fs = require('fs');
+          const pkg = JSON.parse(fs.readFileSync('main/package.json', 'utf8'));
+          pkg.version = '$NEW_VERSION';
+          fs.writeFileSync('main/package.json', JSON.stringify(pkg, null, 2) + '\n');
+        "
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+        git add main/package.json
+        git commit -m "chore: bump fork build to $NEW_VERSION [skip ci]"
+        git push origin linux
+
     # electron-overlay-window's native addon needs xcb-shape headers to compile
     - name: Install native build dependencies
       run: sudo apt-get update && sudo apt-get install -y libxcb-shape0-dev
