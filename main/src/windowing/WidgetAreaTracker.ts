@@ -101,11 +101,12 @@ export class WidgetAreaTracker {
       if (!this.hasEnteredArea) return
       if (process.platform === 'linux') {
         // On Linux the X11 input shape mask already handles click-through for
-        // regions outside the active widget area. Suppress deactivation on
-        // mouse-leave so the price-check window stays interactive while the
-        // user reads it. Focus returns to the game via an explicit action:
-        // Escape / Ctrl+W, the close button (OVERLAY->MAIN::focus-game), or
-        // a click outside the panel (handleMouseDown).
+        // regions outside the active widget area. Stop tracking but keep the
+        // overlay active so the price-check window stays interactive while the
+        // user reads it. Focus returns to the game via Escape / Ctrl+W, the
+        // close button (OVERLAY->MAIN::focus-game), or a game-window click
+        // detected by handlePoeWindowActiveChange.
+        this.removeListeners()
         return
       }
       this.removeListeners()
