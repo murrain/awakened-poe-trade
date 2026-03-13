@@ -1,0 +1,41 @@
+# Build verification for PRs targeting the linux branch.
+# Does not package an AppImage or create a release — just confirms
+# that both renderer and main compile cleanly.
+
+name: Linux PR Check
+
+on:
+  pull_request:
+    branches:
+      - linux
+
+concurrency:
+  group: pr-check-${{ github.head_ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install native build dependencies
+      run: sudo apt-get update && sudo apt-get install -y libxcb-shape0-dev
+
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 20
+
+    - name: Build renderer
+      run: |
+        cd renderer
+        npm ci --legacy-peer-deps
+        npm run make-index-files
+        npm run build
+
+    - name: Build main
+      run: |
+        cd main
+        npm ci
+        npm run build

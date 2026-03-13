@@ -150,10 +150,12 @@ export class OverlayWindow {
 
   armInputRegionReactivation () {
     this.allowInputRegionReactivation = true
+    this.logger.write('debug [Overlay] input-enter reactivation: armed')
   }
 
   disarmInputRegionReactivation () {
     this.allowInputRegionReactivation = false
+    this.logger.write('debug [Overlay] input-enter reactivation: disarmed')
   }
 
   private handleExtraCommands = (event: Electron.Event, input: Electron.Input) => {
@@ -178,6 +180,7 @@ export class OverlayWindow {
       case 'Escape':
       case 'Ctrl + W': {
         event.preventDefault()
+        this.logger.write(`debug [Overlay] keyboard dismiss: ${code}`)
         process.nextTick(this.assertGameActive)
         break
       }
@@ -209,7 +212,12 @@ export class OverlayWindow {
   }
 
   private handleOverlayInputEnter = () => {
-    if (!this.allowInputRegionReactivation || this.isInteractable) return
+    if (!this.allowInputRegionReactivation || this.isInteractable) {
+      this.logger.write(
+        `debug [Overlay] input-enter: ignored (armed=${this.allowInputRegionReactivation} isInteractable=${this.isInteractable})`
+      )
+      return
+    }
     this.logger.write('debug [Overlay] input-enter: reactivating overlay')
     this.assertOverlayActive()
   }
