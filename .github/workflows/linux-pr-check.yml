@@ -1,6 +1,6 @@
 # Build verification for PRs targeting the linux branch.
-# Does not package an AppImage or create a release — just confirms
-# that both renderer and main compile cleanly.
+# Compiles renderer + main and packages an AppImage to catch packaging
+# errors before merge. Does not create a release or publish artifacts.
 
 name: Linux PR Check
 
@@ -39,3 +39,11 @@ jobs:
         cd main
         npm ci
         npm run build
+
+    - name: Package AppImage
+      run: |
+        cd main
+        npx electron-builder build --linux AppImage -p never
+
+    - name: Verify artifacts
+      run: ls -la main/dist/*.AppImage
