@@ -87,12 +87,25 @@ export class WidgetAreaTracker {
           ` inArea=${inside}`
         )
       }
-      if (distance > this.closeThreshold) {
-        this.server.sendEventTo('broadcast', {
-          name: 'MAIN->OVERLAY::hide-exclusive-widget',
-          payload: undefined
-        })
-        this.removeListeners()
+      if (inside) {
+        // Mouse reached the widget area without the hold-key modifier.
+        // Activate on all platforms: previously this case was structurally
+        // unreachable because the outer `if` consumed the event before the
+        // `else if (inside)` branch could run, so the user had to keep the
+        // modifier held the entire way. Now a tap-then-walk works.
+        this.hasEnteredArea = true
+        this.overlay.assertOverlayActive()
+      } else if (distance > this.closeThreshold) {
+        if (process.platform !== 'linux') {
+          // On Linux keep the widget alive so the user can still reach it.
+          // Clicks outside the X11 input shape already pass through to the
+          // game, so there is no penalty for leaving the widget visible.
+          this.server.sendEventTo('broadcast', {
+            name: 'MAIN->OVERLAY::hide-exclusive-widget',
+            payload: undefined
+          })
+          this.removeListeners()
+        }
       }
     } else if (inside) {
       this.hasEnteredArea = true
@@ -132,6 +145,17 @@ export class WidgetAreaTracker {
     } else if (this.overlay.isInteractable) {
       this.removeListeners()
       this.overlay.assertGameActive()
+    } else if (process.platform === 'linux') {
+      // On Linux the distance-based dismiss in handleMouseMove is suppressed,
+      // so listeners can persist while the user walks to the widget. A click
+      // outside the area while the overlay is still not interactable is a clear
+      // signal the user changed their mind — clean up to prevent a stale
+      // listener pair from persisting until the next track-area event.
+      this.server.sendEventTo('broadcast', {
+        name: 'MAIN->OVERLAY::hide-exclusive-widget',
+        payload: undefined
+      })
+      this.removeListeners()
     }
   }
 }
