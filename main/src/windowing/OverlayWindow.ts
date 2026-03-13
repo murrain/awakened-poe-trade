@@ -218,7 +218,8 @@ export class OverlayWindow {
       )
       return
     }
-    this.logger.write('debug [Overlay] input-enter: reactivating overlay')
+    this.logger.write('debug [Overlay] input-enter: reactivating overlay, disarming')
+    this.allowInputRegionReactivation = false
     this.assertOverlayActive()
   }
 
@@ -227,13 +228,20 @@ export class OverlayWindow {
       this.logger.write('debug [Overlay] game regained focus while interactable, deactivating overlay')
       this.isInteractable = false
     }
-    this.logger.write(`debug [Overlay] focus-change: game=${isActive} overlay=${this.isInteractable}`)
+    // On Linux, when input-enter reactivation is armed and the game regains
+    // focus, we tell the renderer to keep hide-on-blur widgets visible.
+    // Otherwise their data-input-region elements get removed from the DOM,
+    // which clears the X11 input shape mask and prevents input-enter from
+    // ever firing to reactivate the overlay.
+    const preserveWidgets = isActive && process.platform === 'linux' && this.allowInputRegionReactivation
+    this.logger.write(`debug [Overlay] focus-change: game=${isActive} overlay=${this.isInteractable} preserveWidgets=${preserveWidgets}`)
     this.server.sendEventTo('broadcast', {
       name: 'MAIN->OVERLAY::focus-change',
       payload: {
         game: isActive,
         overlay: this.isInteractable,
-        usingHotkey: this.isOverlayKeyUsed
+        usingHotkey: this.isOverlayKeyUsed,
+        preserveWidgets
       }
     })
     this.isOverlayKeyUsed = false

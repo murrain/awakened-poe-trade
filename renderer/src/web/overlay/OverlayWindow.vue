@@ -95,9 +95,19 @@ export default defineComponent({
       gameFocused.value = state.game
 
       if (active.value === false) {
-        for (const w of widgets.value) {
-          if (w.wmFlags.includes('hide-on-blur')) {
-            hide(w.wmId)
+        // On Linux, when input-enter reactivation is armed, the main process
+        // sets preserveWidgets so we keep hide-on-blur widgets visible. Their
+        // data-input-region elements must stay in the DOM to maintain the X11
+        // input shape mask — otherwise input-enter can never fire.
+        // Note: when the price-check browser is open, the widget swaps to
+        // invisible-on-blur (not hide-on-blur), so preserveWidgets has no
+        // effect in that state — reactivation via input-enter won't work
+        // with the browser panel open.
+        if (!state.preserveWidgets) {
+          for (const w of widgets.value) {
+            if (w.wmFlags.includes('hide-on-blur')) {
+              hide(w.wmId)
+            }
           }
         }
       } else {
