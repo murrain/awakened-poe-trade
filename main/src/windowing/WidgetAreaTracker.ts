@@ -99,6 +99,15 @@ export class WidgetAreaTracker {
       this.overlay.assertOverlayActive()
     } else if (this.overlay.isInteractable) {
       if (!this.hasEnteredArea) return
+      if (process.platform === 'linux') {
+        // On Linux the X11 input shape mask already handles click-through for
+        // regions outside the active widget area. Suppress deactivation on
+        // mouse-leave so the price-check window stays interactive while the
+        // user reads it. Focus returns to the game via an explicit action:
+        // Escape / Ctrl+W, the close button (OVERLAY->MAIN::focus-game), or
+        // a click outside the panel (handleMouseDown).
+        return
+      }
       this.removeListeners()
       this.overlay.assertGameActive()
     }
