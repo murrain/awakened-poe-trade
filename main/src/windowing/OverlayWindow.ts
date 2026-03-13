@@ -125,10 +125,31 @@ export class OverlayWindow {
     }
   }
 
+  // Return focus to the game without tearing down the widget session.
+  // Used by stashSearch and other actions that need game focus but should
+  // not dismiss an active price-check widget on Linux.
+  returnFocusToGame = () => {
+    if (this.isInteractable) {
+      this.logger.write('debug [Overlay] returnFocusToGame: deactivating (preserving session)')
+      this.isInteractable = false
+      OverlayController.focusTarget()
+      this.poeWindow.isActive = true
+    }
+  }
+
   assertGameActive = () => {
     if (this.isInteractable) {
       this.logger.write('debug [Overlay] assertGameActive: deactivating')
       this.isInteractable = false
+      // Disarm input-enter reactivation on explicit dismiss (Escape, close
+      // button, overlay key). This ensures the subsequent focus-change sends
+      // preserveWidgets=false so hide-on-blur actually hides the widget.
+      // Game-click focus changes go through handlePoeWindowActiveChange
+      // instead, which does NOT disarm — keeping the widget alive.
+      if (this.allowInputRegionReactivation) {
+        this.allowInputRegionReactivation = false
+        this.logger.write('debug [Overlay] input-enter reactivation: disarmed (explicit dismiss)')
+      }
       OverlayController.focusTarget()
       this.poeWindow.isActive = true
     }
@@ -218,8 +239,7 @@ export class OverlayWindow {
       )
       return
     }
-    this.logger.write('debug [Overlay] input-enter: reactivating overlay, disarming')
-    this.allowInputRegionReactivation = false
+    this.logger.write('debug [Overlay] input-enter: reactivating overlay')
     this.assertOverlayActive()
   }
 

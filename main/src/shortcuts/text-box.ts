@@ -56,7 +56,7 @@ export function stashSearch (
   overlay: OverlayWindow
 ) {
   clipboard.restoreShortly((clipboard) => {
-    overlay.assertGameActive()
+    overlay.returnFocusToGame()
     clipboard.writeText(text)
     uIOhook.keyTap(Key.F, [Key.Ctrl])
     uIOhook.keyTap(Key.V, [process.platform === 'darwin' ? Key.Meta : Key.Ctrl])
