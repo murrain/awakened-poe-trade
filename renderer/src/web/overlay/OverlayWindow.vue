@@ -280,11 +280,18 @@ export default defineComponent({
       let inputRegionTimer: ReturnType<typeof setTimeout> | null = null
       let inputRegionRaf: number | null = null
       let loggedEnv = false
-
       function updateInputRegions () {
+        const activeSnapshot = active.value
         nextTick(() => {
           inputRegionRaf = requestAnimationFrame(() => {
             inputRegionRaf = null
+            if (active.value !== activeSnapshot) {
+              // active flipped during the debounce→nextTick→RAF pipeline
+              // (e.g. compositor bounce). Reschedule to measure after the
+              // DOM settles in its final state.
+              scheduleInputRegionUpdate()
+              return
+            }
             const regions: Array<{ x: number, y: number, width: number, height: number }> = []
             const dpr = window.devicePixelRatio || 1
 
@@ -337,7 +344,8 @@ export default defineComponent({
         inputRegionTimer = setTimeout(updateInputRegions, 50)
       }
 
-      // visibilityState depends on active, so watching it covers both.
+      // visibilityState depends on active and gameFocused, so watching it
+      // covers all focus-driven visibility changes.
       watch(visibilityState, scheduleInputRegionUpdate, { immediate: true })
       watch(size, scheduleInputRegionUpdate)
 

@@ -38,12 +38,12 @@ export class WidgetAreaTracker {
         this.from = normalizePoint(opts.from)
         this.area = normalizeRect(opts.area)
 
-        console.info('[WidgetAreaTracker][Linux] register track-area', {
-          holdKey: opts.holdKey,
-          from: this.from,
-          area: this.area,
-          closeThreshold: this.closeThreshold
-        })
+        this.logger.write(
+          `debug [WidgetAreaTracker] register track-area (Linux):` +
+          ` holdKey=${opts.holdKey} from=(${this.from.x},${this.from.y})` +
+          ` area=(${this.area.x},${this.area.y} ${this.area.width}x${this.area.height})` +
+          ` closeThreshold=${this.closeThreshold}`
+        )
       } else {
         this.closeThreshold = opts.closeThreshold
         this.from = opts.from
