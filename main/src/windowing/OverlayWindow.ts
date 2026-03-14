@@ -17,6 +17,9 @@ export class OverlayWindow {
   // blur/focus events are unreliable on X11. Instead of reacting to
   // each blur event with guards and timers, we enforce the desired state.
   private focusPollInterval: ReturnType<typeof setInterval> | null = null
+  // Registered once per subscriber in their constructor. Not designed for
+  // dynamic registration/unregistration — subscribers are long-lived singletons.
+  private onDeactivateCallbacks: Array<() => void> = []
 
   constructor (
     private server: ServerEvents,
@@ -131,6 +134,8 @@ export class OverlayWindow {
   // Return focus to the game without tearing down the widget session.
   // Used by stashSearch and other actions that need game focus but should
   // not dismiss an active price-check widget on Linux.
+  // Intentionally does not fire onDeactivateCallbacks or hide-exclusive-widget
+  // — the widget session is preserved, not terminated.
   returnFocusToGame = () => {
     if (this.isInteractable) {
       this.logger.write('debug [Overlay] returnFocusToGame: deactivating (preserving session)')
@@ -146,9 +151,23 @@ export class OverlayWindow {
       this.logger.write('debug [Overlay] assertGameActive: deactivating')
       this.isInteractable = false
       this.stopFocusPoll()
+      if (process.platform === 'linux') {
+        // On Linux, focus-change no longer triggers hide-on-blur in the
+        // renderer (the focus poll model skips that). Explicitly tell the
+        // renderer to hide the exclusive widget on dismiss.
+        this.server.sendEventTo('broadcast', {
+          name: 'MAIN->OVERLAY::hide-exclusive-widget',
+          payload: undefined
+        })
+      }
+      for (const cb of this.onDeactivateCallbacks) cb()
       OverlayController.focusTarget()
       this.poeWindow.isActive = true
     }
+  }
+
+  onDeactivate (cb: () => void) {
+    this.onDeactivateCallbacks.push(cb)
   }
 
   toggleActiveState = () => {

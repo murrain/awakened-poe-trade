@@ -18,6 +18,10 @@ export class WidgetAreaTracker {
     private overlay: OverlayWindow,
     private logger: Logger
   ) {
+    // When the overlay is explicitly dismissed, stop tracking so we don't
+    // immediately re-activate when the cursor is still over the widget area.
+    this.overlay.onDeactivate(() => this.removeListeners())
+
     this.server.onEventAnyClient('OVERLAY->MAIN::track-area', (opts) => {
       this.holdKey = opts.holdKey
       if (process.platform === 'win32') {
