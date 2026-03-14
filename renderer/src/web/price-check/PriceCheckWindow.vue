@@ -30,7 +30,7 @@
       <div class="grow layout-column min-h-0 bg-gray-800">
         <background-info />
         <check-position-circle v-if="showCheckPos"
-          :position="checkPosition" style="z-index: -1;" />
+          :position="checkPosition" :origin="trackAnchor" style="z-index: -1;" />
         <template v-if="item?.isErr()">
           <ui-error-box class="m-4">
             <template #name>{{ t(item.error.name) }}</template>
@@ -149,29 +149,48 @@ export default defineComponent({
     const item = shallowRef<null | Result<ParsedItem, ParseError>>(null)
     const advancedCheck = shallowRef(false)
     const checkPosition = shallowRef({ x: 1, y: 1 })
+    const checkSide = shallowRef<'stash' | 'inventory'>('stash')
+    const trackAnchor = shallowRef({ x: window.screenX, y: window.screenY })
+    const isLinux = navigator.userAgent.includes('Linux')
 
     MainProcess.onEvent('MAIN->CLIENT::item-text', (e) => {
       if (e.target !== 'price-check') return
 
       if (Host.isElectron && !e.focusOverlay) {
-        // everything in CSS pixels
-        const width = 28.75 * AppConfig().fontSize
-        const screenX = ((e.position.x - window.screenX) > window.innerWidth / 2)
-          ? (window.screenX + window.innerWidth) - wm.poePanelWidth.value - width
-          : window.screenX + wm.poePanelWidth.value
+        const dpr = window.devicePixelRatio || 1
+
+        // On Linux, use authoritative game bounds from X11 (physical pixels)
+        // instead of window.screenX/Y which is unreliable for OR windows.
+        const anchor = (isLinux && e.gameBounds)
+          ? e.gameBounds
+          : { x: window.screenX, y: window.screenY, width: window.innerWidth, height: window.innerHeight }
+
+        // Scale to physical pixels on Linux for uiohook coordinate space
+        const scale = isLinux ? dpr : 1
+        const width = Math.round(28.75 * AppConfig().fontSize * scale)
+        const panelWidth = Math.round(wm.poePanelWidth.value * scale)
+        const middleX = anchor.x + anchor.width / 2
+        const side = e.position.x > middleX ? 'inventory' : 'stash'
+        const screenX = side === 'inventory'
+          ? anchor.x + anchor.width - panelWidth - width
+          : anchor.x + panelWidth
+
+        trackAnchor.value = anchor
+        checkSide.value = side
+
         MainProcess.sendEvent({
           name: 'OVERLAY->MAIN::track-area',
           payload: {
             holdKey: props.config.hotkeyHold,
-            closeThreshold: 2.5 * AppConfig().fontSize,
+            closeThreshold: Math.round(2.5 * AppConfig().fontSize * scale),
             from: e.position,
             area: {
               x: screenX,
-              y: window.screenY,
+              y: anchor.y,
               width,
-              height: window.innerHeight
+              height: anchor.height
             },
-            dpr: window.devicePixelRatio
+            dpr: dpr
           }
         })
       }
@@ -222,10 +241,7 @@ export default defineComponent({
       if (isBrowserShown.value) {
         return 'inventory'
       } else {
-        return checkPosition.value.x > (window.screenX + window.innerWidth / 2)
-          ? 'inventory'
-          : 'stash'
-          // or {chat, vendor, center of screen}
+        return checkSide.value
       }
     })
 
@@ -280,6 +296,7 @@ export default defineComponent({
       stableOrbCost,
       xchgRateLoading,
       showCheckPos,
+      trackAnchor,
       checkPosition,
       item,
       advancedCheck,

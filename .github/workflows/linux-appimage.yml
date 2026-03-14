@@ -1,93 +1,77 @@
 name: Linux AppImage
 
 on:
+  push:
+    branches:
+      - linux
+      - linux-v2
   workflow_dispatch:
-  schedule:
-    - cron: '0 */6 * * *'
 
 jobs:
-  check-upstream:
-    runs-on: ubuntu-latest
-    outputs:
-      should_build: ${{ steps.check.outputs.should_build }}
-      upstream_tag: ${{ steps.check.outputs.upstream_tag }}
-    steps:
-    - name: Check for new upstream release
-      id: check
-      env:
-        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      run: |
-        UPSTREAM_TAG=$(gh api repos/SnosMe/awakened-poe-trade/releases/latest --jq '.tag_name')
-        echo "upstream_tag=$UPSTREAM_TAG" >> "$GITHUB_OUTPUT"
-
-        EXISTING=$(gh api repos/${{ github.repository }}/releases/tags/${UPSTREAM_TAG}-linux 2>/dev/null && echo "yes" || echo "no")
-        if [ "$EXISTING" = "no" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-          echo "should_build=true" >> "$GITHUB_OUTPUT"
-        else
-          echo "should_build=false" >> "$GITHUB_OUTPUT"
-        fi
-
   build:
-    needs: check-upstream
-    if: needs.check-upstream.outputs.should_build == 'true'
     runs-on: ubuntu-22.04
     permissions:
       contents: write
     steps:
-    - name: Checkout upstream at tag
-      uses: actions/checkout@v4
-      with:
-        repository: SnosMe/awakened-poe-trade
-        ref: ${{ needs.check-upstream.outputs.upstream_tag }}
+      - name: Checkout branch
+        uses: actions/checkout@v4
 
-    - uses: actions/setup-node@v4
-      with:
-        node-version: 20
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
 
-    - name: Patch dependencies and updater
-      run: |
-        cd main
-        node -e "
-          const fs = require('fs');
-          const pkg = require('./package.json');
-          pkg.dependencies['electron-overlay-window'] = 'github:murrain/electron-overlay-window';
-          pkg.repository.url = 'https://github.com/murrain/awakened-poe-trade.git';
-          fs.writeFileSync('./package.json', JSON.stringify(pkg, null, 2) + '\n');
-          let updater = fs.readFileSync('src/AppUpdater.ts', 'utf8');
-          const inject = \"    autoUpdater.setFeedURL({ provider: 'github', owner: 'murrain', repo: 'awakened-poe-trade' })\n\";
-          updater = updater.replace('// https://www.electron.build', inject + '    // https://www.electron.build');
-          fs.writeFileSync('src/AppUpdater.ts', updater);
-        "
+      - name: Read app version
+        id: version
+        run: |
+          echo "app_version=$(node -p \"require('./main/package.json').version\")" >> "$GITHUB_OUTPUT"
 
-    - name: Build renderer
-      run: |
-        cd renderer
-        npm ci --legacy-peer-deps
-        npm run make-index-files
-        npm run build
+      - name: Build renderer
+        run: |
+          cd renderer
+          npm ci --legacy-peer-deps
+          npm run make-index-files
+          npm run build
 
-    - name: Build main
-      run: |
-        cd main
-        npm install
-        npm run build
+      - name: Build main
+        run: |
+          cd main
+          npm ci
+          npm run build
 
-    - name: Package AppImage
-      run: |
-        cd main
-        npx electron-builder build --linux AppImage -p never
-      env:
-        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Package AppImage
+        run: |
+          cd main
+          npx electron-builder build --linux AppImage -p never
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Create release with update metadata
-      env:
-        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        UPSTREAM_TAG: ${{ needs.check-upstream.outputs.upstream_tag }}
-      run: |
-        gh release create "${UPSTREAM_TAG}-linux" \
-          --repo ${{ github.repository }} \
-          --title "Awakened PoE Trade ${UPSTREAM_TAG} (Linux)" \
-          --notes "Automated Linux AppImage build of upstream ${UPSTREAM_TAG} with patched electron-overlay-window (pointer grab fix)." \
-          --latest \
-          main/dist/*.AppImage \
-          main/dist/latest-linux.yml
+      - name: Upload AppImage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: appimage-${{ github.ref_name }}
+          path: |
+            main/dist/*.AppImage
+            main/dist/latest-linux.yml
+          retention-days: 7
+
+      - name: Publish release with update metadata
+        if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/linux'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APP_VERSION: ${{ steps.version.outputs.app_version }}
+        run: |
+          TAG="v${APP_VERSION}-linux"
+          TITLE="Awakened PoE Trade ${APP_VERSION} (Linux)"
+          NOTES="Branch build from ${GITHUB_REF_NAME} at ${GITHUB_SHA}."
+
+          if gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            gh release upload "$TAG" main/dist/*.AppImage main/dist/latest-linux.yml --repo "${{ github.repository }}" --clobber
+          else
+            gh release create "$TAG" \
+              --repo "${{ github.repository }}" \
+              --title "$TITLE" \
+              --notes "$NOTES" \
+              --latest \
+              main/dist/*.AppImage \
+              main/dist/latest-linux.yml
+          fi
