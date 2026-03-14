@@ -92,11 +92,6 @@ type IpcFocusChange =
     game: boolean
     overlay: boolean
     usingHotkey: boolean
-    // When true, the renderer should keep hide-on-blur widgets visible so
-    // their data-input-region elements stay in the DOM. This preserves the
-    // X11 input shape mask, allowing input-enter events to fire and
-    // re-activate the overlay when the cursor returns to a widget region.
-    preserveWidgets?: boolean
   }>
 
 type IpcVisibility =
