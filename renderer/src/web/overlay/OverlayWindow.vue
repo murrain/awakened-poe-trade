@@ -54,7 +54,6 @@ export default defineComponent({
     useLeagues().load()
 
     const active = shallowRef(!Host.isElectron)
-    const gameFocused = shallowRef(false)
     const hideUI = shallowRef(false)
     const showEditingNotification = shallowRef(false)
 
@@ -90,24 +89,31 @@ export default defineComponent({
       }
     })
 
+    const isLinuxOverlayHost = Host.isElectron && navigator.platform.startsWith('Linux')
+
     Host.onEvent('MAIN->OVERLAY::focus-change', (state) => {
       active.value = state.overlay
-      gameFocused.value = state.game
 
-      if (active.value === false) {
-        // On Linux, when input-enter reactivation is armed, the main process
-        // sets preserveWidgets so we keep hide-on-blur widgets visible. Their
-        // data-input-region elements must stay in the DOM to maintain the X11
-        // input shape mask — otherwise input-enter can never fire.
-        // Note: when the price-check browser is open, the widget swaps to
-        // invisible-on-blur (not hide-on-blur), so preserveWidgets has no
-        // effect in that state — reactivation via input-enter won't work
-        // with the browser panel open.
-        if (!state.preserveWidgets) {
+      if (isLinuxOverlayHost) {
+        // On Linux, the main process focus poll keeps the overlay active.
+        // Widget visibility is controlled only by explicit dismiss actions
+        // (keybind, close button), not by focus-change events. The X11
+        // input shape mask handles click-through; hiding widgets on blur
+        // would destroy the shape mask regions and cause zombie states.
+        if (active.value) {
           for (const w of widgets.value) {
-            if (w.wmFlags.includes('hide-on-blur')) {
+            if (w.wmFlags.includes('hide-on-focus')) {
               hide(w.wmId)
             }
+          }
+        }
+        return
+      }
+
+      if (active.value === false) {
+        for (const w of widgets.value) {
+          if (w.wmFlags.includes('hide-on-blur')) {
+            hide(w.wmId)
           }
         }
       } else {
@@ -276,22 +282,14 @@ export default defineComponent({
     // use nextTick (wait for Vue DOM flush) + requestAnimationFrame (wait
     // for browser layout) before measuring, so getBoundingClientRect()
     // returns the final rendered positions.
-    if (Host.isElectron && navigator.platform.startsWith('Linux')) {
+    if (isLinuxOverlayHost) {
       let inputRegionTimer: ReturnType<typeof setTimeout> | null = null
       let inputRegionRaf: number | null = null
       let loggedEnv = false
       function updateInputRegions () {
-        const activeSnapshot = active.value
         nextTick(() => {
           inputRegionRaf = requestAnimationFrame(() => {
             inputRegionRaf = null
-            if (active.value !== activeSnapshot) {
-              // active flipped during the debounce→nextTick→RAF pipeline
-              // (e.g. compositor bounce). Reschedule to measure after the
-              // DOM settles in its final state.
-              scheduleInputRegionUpdate()
-              return
-            }
             const regions: Array<{ x: number, y: number, width: number, height: number }> = []
             const dpr = window.devicePixelRatio || 1
 
@@ -319,8 +317,7 @@ export default defineComponent({
                 // while getBoundingClientRect returns CSS pixels.
                 // Multiply by devicePixelRatio for HiDPI displays.
                 // Clamp negative coords to 0 — elements mid-animation
-                // (e.g. SettingsWindow's slideInDown) report their
-                // animated position, but we want the final resting spot.
+                // report their animated position, not the final spot.
                 regions.push({
                   x: Math.round(Math.max(0, rect.x) * dpr),
                   y: Math.round(Math.max(0, rect.y) * dpr),
@@ -344,8 +341,6 @@ export default defineComponent({
         inputRegionTimer = setTimeout(updateInputRegions, 50)
       }
 
-      // visibilityState depends on active, so watching it covers all
-      // focus-driven visibility changes.
       watch(visibilityState, scheduleInputRegionUpdate, { immediate: true })
       watch(size, scheduleInputRegionUpdate)
 
@@ -367,13 +362,11 @@ export default defineComponent({
       }
     }
 
-    const isLinuxOverlay = Host.isElectron && navigator.platform.startsWith('Linux')
-
     const overlayBackground = computed<string | undefined>(() => {
       // On Linux, X11 input shape masks handle click-through at the window
       // manager level — clicks outside widget regions never reach the overlay.
       // The semi-transparent backdrop would just obscure the game for no reason.
-      if (isLinuxOverlay) return undefined
+      if (isLinuxOverlayHost) return undefined
       if (!active.value) return undefined
       return AppConfig().overlayBackground
     })

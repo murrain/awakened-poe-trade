@@ -60,14 +60,12 @@ export class WidgetAreaTracker {
       )
 
       this.removeListeners()
-      this.overlay.armInputRegionReactivation()
       uIOhook.addListener('mousemove', this.handleMouseMove)
       uIOhook.addListener('mousedown', this.handleMouseDown)
     })
   }
 
   removeListeners () {
-    this.overlay.disarmInputRegionReactivation()
     uIOhook.removeListener('mousemove', this.handleMouseMove)
     uIOhook.removeListener('mousedown', this.handleMouseDown)
   }
@@ -89,10 +87,6 @@ export class WidgetAreaTracker {
       }
       if (inside) {
         // Mouse reached the widget area without the hold-key modifier.
-        // Activate on all platforms: previously this case was structurally
-        // unreachable because the outer `if` consumed the event before the
-        // `else if (inside)` branch could run, so the user had to keep the
-        // modifier held the entire way. Now a tap-then-walk works.
         this.logger.write(
           `debug [WidgetAreaTracker] activate: cursor inside area without holdKey` +
           ` (modifier=${modifier ?? 'none'} holdKey=${this.holdKey})`
@@ -100,10 +94,15 @@ export class WidgetAreaTracker {
         this.hasEnteredArea = true
         this.overlay.assertOverlayActive()
       } else if (distance > this.closeThreshold) {
-        if (process.platform !== 'linux') {
-          // On Linux keep the widget alive so the user can still reach it.
-          // Clicks outside the X11 input shape already pass through to the
-          // game, so there is no penalty for leaving the widget visible.
+        if (process.platform === 'linux') {
+          // On Linux the X11 input shape mask handles click-through and the
+          // focus poll keeps the overlay alive. No distance-based dismiss.
+          if (this.debugMoveCount <= 5) {
+            this.logger.write(
+              `debug [WidgetAreaTracker] distance ${distance.toFixed(0)} > threshold, keeping widget (Linux)`
+            )
+          }
+        } else {
           this.logger.write(
             `debug [WidgetAreaTracker] dismiss: distance ${distance.toFixed(0)} > threshold ${this.closeThreshold.toFixed(0)}, hiding widget`
           )
@@ -112,10 +111,6 @@ export class WidgetAreaTracker {
             payload: undefined
           })
           this.removeListeners()
-        } else {
-          this.logger.write(
-            `debug [WidgetAreaTracker] distance ${distance.toFixed(0)} > threshold ${this.closeThreshold.toFixed(0)}, keeping widget (Linux shape mask)`
-          )
         }
       }
     } else if (inside) {
@@ -124,19 +119,13 @@ export class WidgetAreaTracker {
     } else if (this.overlay.isInteractable) {
       if (!this.hasEnteredArea) return
       this.logger.write(
-        `debug [WidgetAreaTracker] mouse left area: isInteractable=true hasEnteredArea=true platform=${process.platform}`
+        `debug [WidgetAreaTracker] mouse left area: isInteractable=true platform=${process.platform}`
       )
       if (process.platform === 'linux') {
-        // On Linux the X11 input shape mask already handles click-through for
-        // regions outside the active widget area. Stop tracking but keep the
-        // overlay active so the price-check window stays interactive while the
-        // user reads it. Re-arm input-enter so that moving the mouse back into
-        // a widget region after a game-click can reactivate the overlay.
-        // Focus returns to the game via Escape / Ctrl+W, the close button
-        // (OVERLAY->MAIN::focus-game), or a game-window click detected by
-        // handlePoeWindowActiveChange.
+        // On Linux the focus poll keeps the overlay active and the shape
+        // mask handles click-through. Just stop tracking — the overlay
+        // stays up until the user explicitly dismisses (Escape, close button).
         this.removeListeners()
-        this.overlay.armInputRegionReactivation()
         return
       }
       this.removeListeners()
@@ -158,16 +147,18 @@ export class WidgetAreaTracker {
       this.removeListeners()
       this.overlay.assertOverlayActive()
     } else if (this.overlay.isInteractable) {
+      if (process.platform === 'linux') {
+        // On Linux, clicks outside the widget pass through via shape mask.
+        // The overlay stays up — only keybinds dismiss.
+        return
+      }
       this.logger.write('debug [WidgetAreaTracker] mousedown outside area while interactable, returning to game')
       this.removeListeners()
       this.overlay.assertGameActive()
-    } else if (process.platform === 'linux') {
-      this.logger.write('debug [WidgetAreaTracker] mousedown outside area while not interactable (Linux), dismissing widget')
-      // On Linux the distance-based dismiss in handleMouseMove is suppressed,
-      // so listeners can persist while the user walks to the widget. A click
-      // outside the area while the overlay is still not interactable is a clear
-      // signal the user changed their mind — clean up to prevent a stale
-      // listener pair from persisting until the next track-area event.
+    } else if (process.platform !== 'linux') {
+      // Non-Linux: click outside while not interactable is a dismiss signal.
+      // On Linux the focus poll and shape mask handle this — no dismiss needed.
+      this.logger.write('debug [WidgetAreaTracker] mousedown outside area while not interactable, dismissing widget')
       this.server.sendEventTo('broadcast', {
         name: 'MAIN->OVERLAY::hide-exclusive-widget',
         payload: undefined

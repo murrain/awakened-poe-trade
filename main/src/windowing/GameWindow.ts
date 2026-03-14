@@ -11,7 +11,7 @@ export class GameWindow extends EventEmitter {
   // Debounce timer for game-blur events. On X11, _NET_ACTIVE_WINDOW can
   // bounce (game → none → game) when the overlay is override-redirect.
   // Without debouncing, the intermediate blur reaches handlePoeWindowActiveChange
-  // with preserveWidgets=false and destroys hide-on-blur widgets irreversibly.
+  // and broadcasts spurious focus-change events to the renderer.
   // Game-focus (true) is always emitted immediately; game-blur (false) waits
   // for the bounce window to close.
   private _blurTimer: ReturnType<typeof setTimeout> | null = null

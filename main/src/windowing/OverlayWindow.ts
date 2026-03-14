@@ -11,8 +11,12 @@ export class OverlayWindow {
   private window?: BrowserWindow
   private overlayKey: string = 'Shift + Space'
   private isOverlayKeyUsed = false
-  private allowInputRegionReactivation = false
-  private lastRegionCount = 0
+  // On Linux, a polling interval that re-asserts overlay focus while
+  // isInteractable is true. Override-redirect windows can't regain focus
+  // from user clicks (the WM doesn't manage them), and Electron's
+  // blur/focus events are unreliable on X11. Instead of reacting to
+  // each blur event with guards and timers, we enforce the desired state.
+  private focusPollInterval: ReturnType<typeof setInterval> | null = null
 
   constructor (
     private server: ServerEvents,
@@ -22,9 +26,6 @@ export class OverlayWindow {
     this.server.onEventAnyClient('OVERLAY->MAIN::focus-game', this.assertGameActive)
     this.poeWindow.on('active-change', this.handlePoeWindowActiveChange)
     this.poeWindow.onAttach(this.handleOverlayAttached)
-    if (process.platform === 'linux') {
-      OverlayController.events.on('input-enter', this.handleOverlayInputEnter)
-    }
 
     this.server.onEventAnyClient('CLIENT->MAIN::used-recently', (e) => {
       this.wasUsedRecently = e.isOverlay
@@ -45,7 +46,6 @@ export class OverlayWindow {
             this.logger.write('warn [Overlay] setInputRegions unavailable in current electron-overlay-window build')
             return
           }
-          this.lastRegionCount = e.regions.length
           const summary = e.regions.length === 0
             ? 'none'
             : e.regions.map(r => `(${r.x},${r.y} ${r.width}x${r.height})`).join(' ')
@@ -124,6 +124,7 @@ export class OverlayWindow {
       this.isInteractable = true
       OverlayController.activateOverlay()
       this.poeWindow.isActive = false
+      this.startFocusPoll()
     }
   }
 
@@ -134,6 +135,7 @@ export class OverlayWindow {
     if (this.isInteractable) {
       this.logger.write('debug [Overlay] returnFocusToGame: deactivating (preserving session)')
       this.isInteractable = false
+      this.stopFocusPoll()
       OverlayController.focusTarget()
       this.poeWindow.isActive = true
     }
@@ -143,14 +145,7 @@ export class OverlayWindow {
     if (this.isInteractable) {
       this.logger.write('debug [Overlay] assertGameActive: deactivating')
       this.isInteractable = false
-      // Disarm input-enter reactivation on explicit dismiss (Escape, close
-      // button, overlay key). This ensures the subsequent focus-change sends
-      // preserveWidgets=false so hide-on-blur actually hides the widget.
-      // Game-click focus changes go through handlePoeWindowActiveChange
-      // instead, which does NOT disarm — keeping the widget alive.
-      if (this.allowInputRegionReactivation) {
-        this.disarmInputRegionReactivation()
-      }
+      this.stopFocusPoll()
       OverlayController.focusTarget()
       this.poeWindow.isActive = true
     }
@@ -170,14 +165,26 @@ export class OverlayWindow {
     this.poeWindow.attach(this.window, windowTitle)
   }
 
-  armInputRegionReactivation () {
-    this.allowInputRegionReactivation = true
-    this.logger.write('debug [Overlay] input-enter reactivation: armed')
+  private startFocusPoll () {
+    if (process.platform !== 'linux') return
+    this.stopFocusPoll()
+    this.focusPollInterval = setInterval(() => {
+      if (!this.window || this.window.isDestroyed()) {
+        this.stopFocusPoll()
+        return
+      }
+      if (this.isInteractable && !this.window.isFocused()) {
+        this.logger.write('debug [Overlay] focus poll: re-asserting focus')
+        OverlayController.activateOverlay()
+      }
+    }, 100)
   }
 
-  disarmInputRegionReactivation () {
-    this.allowInputRegionReactivation = false
-    this.logger.write('debug [Overlay] input-enter reactivation: disarmed')
+  private stopFocusPoll () {
+    if (this.focusPollInterval != null) {
+      clearInterval(this.focusPollInterval)
+      this.focusPollInterval = null
+    }
   }
 
   private handleExtraCommands = (event: Electron.Event, input: Electron.Input) => {
@@ -233,48 +240,37 @@ export class OverlayWindow {
     }
   }
 
-  private handleOverlayInputEnter = () => {
-    if (!this.allowInputRegionReactivation || this.isInteractable) {
-      this.logger.write(
-        `debug [Overlay] input-enter: ignored (armed=${this.allowInputRegionReactivation} isInteractable=${this.isInteractable})`
-      )
-      return
-    }
-    // Don't reactivate if no input regions exist. This happens when the
-    // price-check browser is open (the visibility state change causes the
-    // renderer to send zero regions via set-input-regions IPC).
-    // Assumes the renderer's zero-region update arrives before input-enter
-    // fires — guaranteed by the 50ms debounce + nextTick + RAF pipeline
-    // completing before any user-driven EnterNotify.
-    if (this.lastRegionCount === 0) {
-      this.logger.write('debug [Overlay] input-enter: ignored, no active input regions')
-      return
-    }
-    this.logger.write('debug [Overlay] input-enter: reactivating overlay')
-    this.disarmInputRegionReactivation()
-    this.assertOverlayActive()
-  }
-
   private handlePoeWindowActiveChange = (isActive: boolean) => {
+    if (process.platform === 'linux') {
+      // On Linux, the focus poll enforces overlay focus. Game focus changes
+      // are noise — compositor bounces, click-through via shape mask, etc.
+      // Only explicit dismiss (keybind, close button) should deactivate.
+      // We still send focus-change so the renderer knows the game state,
+      // but we never change isInteractable here.
+      this.logger.write(`debug [Overlay] focus-change: game=${isActive} overlay=${this.isInteractable}`)
+      this.server.sendEventTo('broadcast', {
+        name: 'MAIN->OVERLAY::focus-change',
+        payload: {
+          game: isActive,
+          overlay: this.isInteractable,
+          usingHotkey: this.isOverlayKeyUsed
+        }
+      })
+      this.isOverlayKeyUsed = false
+      return
+    }
+
     if (isActive && this.isInteractable) {
       this.logger.write('debug [Overlay] game regained focus while interactable, deactivating overlay')
       this.isInteractable = false
     }
-    // On Linux, when input-enter reactivation is armed, keep hide-on-blur
-    // widgets visible regardless of whether the game currently has focus.
-    // _NET_ACTIVE_WINDOW can bounce (game → none → game) over 1–2 seconds
-    // on some compositors; a spurious isActive=false would remove the widget's
-    // data-input-region element, clearing the X11 input shape mask and making
-    // input-enter reactivation impossible even after the game regains focus.
-    const preserveWidgets = process.platform === 'linux' && this.allowInputRegionReactivation
-    this.logger.write(`debug [Overlay] focus-change: game=${isActive} overlay=${this.isInteractable} preserveWidgets=${preserveWidgets}`)
+    this.logger.write(`debug [Overlay] focus-change: game=${isActive} overlay=${this.isInteractable}`)
     this.server.sendEventTo('broadcast', {
       name: 'MAIN->OVERLAY::focus-change',
       payload: {
         game: isActive,
         overlay: this.isInteractable,
-        usingHotkey: this.isOverlayKeyUsed,
-        preserveWidgets
+        usingHotkey: this.isOverlayKeyUsed
       }
     })
     this.isOverlayKeyUsed = false
