@@ -344,8 +344,8 @@ export default defineComponent({
         inputRegionTimer = setTimeout(updateInputRegions, 50)
       }
 
-      // visibilityState depends on active and gameFocused, so watching it
-      // covers all focus-driven visibility changes.
+      // visibilityState depends on active, so watching it covers all
+      // focus-driven visibility changes.
       watch(visibilityState, scheduleInputRegionUpdate, { immediate: true })
       watch(size, scheduleInputRegionUpdate)
 
