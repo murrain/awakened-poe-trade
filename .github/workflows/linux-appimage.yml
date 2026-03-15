@@ -2,6 +2,9 @@ name: Linux AppImage
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - linux-v2
   schedule:
     - cron: '0 */6 * * *'
 
@@ -56,7 +59,7 @@ jobs:
             SHOULD_BUILD=true
           fi
 
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] || [ "${{ github.event_name }}" = "push" ]; then
             SHOULD_BUILD=true
           fi
 
