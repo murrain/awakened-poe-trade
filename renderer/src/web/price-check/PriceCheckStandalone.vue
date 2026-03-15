@@ -57,12 +57,12 @@ export default defineComponent({
       size: readonly(size),
       active,
       widgets: computed(() => config.value ? [config.value] : []),
-      show: (_wmId: number) => {
+      show: (/* wmId */) => {
         if (config.value) {
           config.value.wmWants = 'show'
         }
       },
-      hide: (_wmId: number) => {
+      hide: (/* wmId */) => {
         if (config.value) {
           config.value.wmWants = 'hide'
         }
