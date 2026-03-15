@@ -237,19 +237,25 @@ export default defineComponent({
       checkPosition.value = e.position
       advancedCheck.value = e.focusOverlay
 
-      item.value = (e.item ? ok(e.item as ParsedItem) : parseClipboard(e.clipboard))
-        .andThen(item => (
-          (item.category === ItemCategory.HeistContract && item.rarity !== ItemRarity.Unique) ||
-          (item.category === ItemCategory.Sentinel && item.rarity !== ItemRarity.Unique))
-          ? err('item.unknown')
-          : ok(item))
-        .mapErr(err => ({
-          name: `${err}`,
-          message: `${err}_help`,
-          rawText: e.clipboard
-        }))
+      console.warn('[PCW] handler reached item assignment, clipboard length:', e.clipboard?.length)
+      try {
+        item.value = (e.item ? ok(e.item as ParsedItem) : parseClipboard(e.clipboard))
+          .andThen(item => (
+            (item.category === ItemCategory.HeistContract && item.rarity !== ItemRarity.Unique) ||
+            (item.category === ItemCategory.Sentinel && item.rarity !== ItemRarity.Unique))
+            ? err('item.unknown')
+            : ok(item))
+          .mapErr(err => ({
+            name: `${err}`,
+            message: `${err}_help`,
+            rawText: e.clipboard
+          }))
+        console.warn('[PCW] item set:', item.value?.isOk?.() ? 'ok' : 'err', item.value)
+      } catch (ex) {
+        console.error('[PCW] THREW:', ex)
+      }
 
-      if (item.value.isOk()) {
+      if (item.value?.isOk()) {
         queuePricesFetch()
       }
     })

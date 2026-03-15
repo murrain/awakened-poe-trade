@@ -12,6 +12,7 @@ export class OverlayWindow {
   public isInteractable = false;
   public wasUsedRecently = true;
   private window?: BrowserWindow;
+  get electronWindow() { return this.window; }
   public overlayKey: string = "Shift + Space";
   private isOverlayKeyUsed = false;
   private allowInputEnterReactivation = false;

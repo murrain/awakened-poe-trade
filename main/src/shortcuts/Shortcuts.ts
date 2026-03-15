@@ -15,6 +15,7 @@ import type { OverlayWindow } from "../windowing/OverlayWindow";
 import type { GameWindow } from "../windowing/GameWindow";
 import type { GameConfig } from "../host-files/GameConfig";
 import type { ServerEvents } from "../server";
+import type { LinuxPriceCheckWindow } from "../windowing/LinuxPriceCheckWindow";
 
 type UiohookKeyT = keyof typeof UiohookKey;
 const UiohookToName = Object.fromEntries(
@@ -29,8 +30,7 @@ export class Shortcuts {
   private clipboard: HostClipboard;
   private lastMousePosition?: { x: number; y: number };
   private linuxCopyLatchKey: string | null = null;
-  private linuxPriceCheckGen = 0;
-  private linuxItemTextTimer: ReturnType<typeof setTimeout> | null = null;
+  private linuxPriceCheck: LinuxPriceCheckWindow | null = null;
 
   static async create(
     logger: Logger,
@@ -38,6 +38,7 @@ export class Shortcuts {
     poeWindow: GameWindow,
     gameConfig: GameConfig,
     server: ServerEvents,
+    linuxPriceCheck: LinuxPriceCheckWindow | null,
   ) {
     const ocrWorker = await OcrWorker.create();
     const shortcuts = new Shortcuts(
@@ -47,6 +48,7 @@ export class Shortcuts {
       gameConfig,
       server,
       ocrWorker,
+      linuxPriceCheck,
     );
     return shortcuts;
   }
@@ -58,16 +60,11 @@ export class Shortcuts {
     private gameConfig: GameConfig,
     private server: ServerEvents,
     private ocrWorker: OcrWorker,
+    linuxPriceCheck: LinuxPriceCheckWindow | null,
   ) {
+    this.linuxPriceCheck = linuxPriceCheck;
     this.areaTracker = new WidgetAreaTracker(server, overlay, logger);
     this.clipboard = new HostClipboard(logger);
-
-    // Cancel any in-flight Linux price-check pipeline whenever the overlay
-    // is deactivated — covers mouse-driven dismissals, WidgetAreaTracker
-    // outside-click, and any other path that calls assertGameActive().
-    if (process.platform === "linux") {
-      this.overlay.onDeactivate(() => this.cancelLinuxPriceCheck());
-    }
 
     this.poeWindow.on("active-change", (isActive) => {
       process.nextTick(() => {
@@ -124,9 +121,17 @@ export class Shortcuts {
           this.logger.write(
             `debug [Overlay] keyboard toggle: ${this.overlay.overlayKey}`,
           );
-          this.cancelLinuxPriceCheck();
+          this.linuxPriceCheck?.hideWindow();
           this.areaTracker.removeListeners();
           this.overlay.toggleActiveState();
+          return;
+        }
+
+        if (pressed === "Escape" && this.linuxPriceCheck?.isVisible) {
+          this.logger.write(
+            "debug [LinuxPriceCheck] keyboard dismiss: Escape",
+          );
+          this.linuxPriceCheck.hideWindow();
           return;
         }
 
@@ -139,13 +144,11 @@ export class Shortcuts {
 
         if (pressed === "Escape") {
           this.logger.write("debug [Overlay] keyboard dismiss: Escape");
-          this.cancelLinuxPriceCheck();
           this.overlay.assertGameActive();
         } else if (pressed === this.overlay.overlayKey) {
           this.logger.write(
             `debug [Overlay] keyboard dismiss: ${this.overlay.overlayKey}`,
           );
-          this.cancelLinuxPriceCheck();
           this.overlay.assertGameActive();
         }
       }
@@ -281,17 +284,6 @@ export class Shortcuts {
     globalShortcut.unregisterAll();
   }
 
-  private cancelLinuxPriceCheck() {
-    this.linuxPriceCheckGen++;
-    if (this.linuxItemTextTimer) {
-      clearTimeout(this.linuxItemTextTimer);
-      this.linuxItemTextTimer = null;
-    }
-    this.logger.write(
-      `debug [Shortcuts] Linux price-check: cancelled (gen=${this.linuxPriceCheckGen})`,
-    );
-  }
-
   private executeAction(entry: ShortcutAction) {
     if (this.logKeys) {
       this.logger.write(`debug [Shortcuts] Action type: ${entry.action.type}`);
@@ -328,13 +320,10 @@ export class Shortcuts {
       stashSearch(entry.action.text, this.clipboard, this.overlay);
     } else if (entry.action.type === "copy-item") {
       const { action } = entry;
-      const activatePriceCheckOverlay =
-        process.platform === "linux" &&
+      const useLinuxDedicatedWindow =
+        this.linuxPriceCheck &&
         action.target === "price-check" &&
         !action.focusOverlay;
-      const heldShortcutModifiers = entry.shortcut
-        .split(" + ")
-        .filter((key) => isModKey(key));
       const pressPosition = this.getCopyItemPressPosition();
       const payload = {
         target: action.target,
@@ -344,54 +333,13 @@ export class Shortcuts {
         focusOverlay: Boolean(action.focusOverlay),
       };
 
-      const gen = activatePriceCheckOverlay ? ++this.linuxPriceCheckGen : 0;
-
       this.clipboard
         .readItemText()
-        .then(async (clipboard) => {
+        .then((clipboard) => {
           payload.clipboard = clipboard;
           this.areaTracker.removeListeners();
-          if (activatePriceCheckOverlay) {
-            if (gen !== this.linuxPriceCheckGen) {
-              this.logger.write(
-                `debug [Shortcuts] Linux price-check: stale before settle gen=${gen} (current=${this.linuxPriceCheckGen}), aborting`,
-              );
-              return;
-            }
-            releaseShortcutModifiers(heldShortcutModifiers);
-            this.logger.write(
-              `debug [Shortcuts] Linux price-check: released modifiers, waiting for X11 key-up settle (gen=${gen})`,
-            );
-            // Give X11 time to process the synthetic key-up events from
-            // both pressKeysToCopyItemText (Ctrl+C) and releaseShortcutModifiers
-            // before changing the overlay's input mode.
-            await new Promise((r) => setTimeout(r, 50));
-            if (gen !== this.linuxPriceCheckGen) {
-              this.logger.write(
-                `debug [Shortcuts] Linux price-check: stale gen=${gen} (current=${this.linuxPriceCheckGen}), aborting`,
-              );
-              return;
-            }
-            this.logger.write(
-              `debug [Shortcuts] Linux price-check: settle done, activating overlay (gen=${gen})`,
-            );
-            this.overlay.assertOverlayActive();
-            if (this.linuxItemTextTimer) {
-              clearTimeout(this.linuxItemTextTimer);
-            }
-            this.linuxItemTextTimer = setTimeout(() => {
-              this.linuxItemTextTimer = null;
-              if (gen !== this.linuxPriceCheckGen) {
-                this.logger.write(
-                  `debug [Shortcuts] Linux price-check: stale item-text timer gen=${gen} (current=${this.linuxPriceCheckGen}), dropping`,
-                );
-                return;
-              }
-              this.server.sendEventTo("last-active", {
-                name: "MAIN->CLIENT::item-text",
-                payload,
-              });
-            }, 60);
+          if (useLinuxDedicatedWindow) {
+            this.linuxPriceCheck!.showWithItem(payload);
           } else {
             this.server.sendEventTo("last-active", {
               name: "MAIN->CLIENT::item-text",
@@ -403,12 +351,7 @@ export class Shortcuts {
             this.overlay.assertOverlayActive();
           }
         })
-        .catch(() => {
-          if (activatePriceCheckOverlay) {
-            this.cancelLinuxPriceCheck();
-            this.overlay.assertGameActive();
-          }
-        });
+        .catch(() => {});
 
       pressKeysToCopyItemText(
         entry.keepModKeys
@@ -493,12 +436,6 @@ function pressKeysToCopyItemText(
 
   keys.reverse();
   for (const key of keys) {
-    uIOhook.keyToggle(UiohookKey[key as UiohookKeyT], "up");
-  }
-}
-
-function releaseShortcutModifiers(keys: string[]) {
-  for (const key of keys.slice().reverse()) {
     uIOhook.keyToggle(UiohookKey[key as UiohookKeyT], "up");
   }
 }

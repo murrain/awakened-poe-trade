@@ -7,6 +7,7 @@ import { startServer, eventPipe, server } from './server'
 import { Logger } from './RemoteLogger'
 import { GameWindow } from './windowing/GameWindow'
 import { OverlayWindow } from './windowing/OverlayWindow'
+import { LinuxPriceCheckWindow } from './windowing/LinuxPriceCheckWindow'
 import { GameConfig } from './host-files/GameConfig'
 import { Shortcuts } from './shortcuts/Shortcuts'
 import { AppUpdater } from './AppUpdater'
@@ -39,7 +40,10 @@ app.on('ready', async () => {
     async () => {
       const overlay = new OverlayWindow(eventPipe, logger, poeWindow)
       new OverlayVisibility(eventPipe, overlay, gameConfig)
-      const shortcuts = await Shortcuts.create(logger, overlay, poeWindow, gameConfig, eventPipe)
+      const linuxPriceCheck = process.platform === 'linux'
+        ? new LinuxPriceCheckWindow(eventPipe, logger, poeWindow)
+        : null
+      const shortcuts = await Shortcuts.create(logger, overlay, poeWindow, gameConfig, eventPipe, linuxPriceCheck)
       eventPipe.onEventAnyClient('CLIENT->MAIN::update-host-config', (cfg) => {
         overlay.updateOpts(cfg.overlayKey, cfg.windowTitle)
         shortcuts.updateActions(cfg.shortcuts, cfg.stashScroll, cfg.logKeys, cfg.restoreClipboard, cfg.language)
@@ -53,6 +57,7 @@ app.on('ready', async () => {
       // TODO: move up (currently crashes)
       logger.write(`info ${os.type()} ${os.release} / v${app.getVersion()}`)
       overlay.loadAppPage(port)
+      linuxPriceCheck?.loadAppPage(port)
       tray.serverPort = port
     },
     // fixes(linux): window is black instead of transparent
