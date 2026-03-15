@@ -201,14 +201,39 @@ jobs:
           TAG="v${FORK_VERSION}-linux"
           TITLE="Awakened PoE Trade v${FORK_VERSION} (Linux)"
 
-          NOTES_FILE=$(mktemp)
-          cat > "$NOTES_FILE" <<EOF
-          Automated Linux AppImage build from upstream ${UPSTREAM_REPO}@${UPSTREAM_BRANCH}.
+          # Fetch upstream release notes for the base version
+          UPSTREAM_BODY=""
+          for TAG_CANDIDATE in "v${BASE_VERSION}" "${BASE_VERSION}"; do
+            UPSTREAM_BODY=$(gh release view "$TAG_CANDIDATE" \
+              --repo "${{ env.UPSTREAM_REPO }}" \
+              --json body --jq '.body' 2>/dev/null || true)
+            if [ -n "$UPSTREAM_BODY" ]; then break; fi
+          done
 
-          Upstream base version: ${BASE_VERSION}
-          Upstream commit: ${UPSTREAM_SHA}
-          Merged patch branch: ${PATCH_BRANCH}
-          EOF
+          # Read Linux-specific notes from repo file, fall back to default
+          LINUX_NOTES_FILE=".github/LINUX_RELEASE_NOTES.md"
+          if [ -f "$LINUX_NOTES_FILE" ]; then
+            LINUX_NOTES=$(cat "$LINUX_NOTES_FILE")
+          else
+            LINUX_NOTES="- Unofficial Linux AppImage build with overlay and focus fixes."
+          fi
+
+          NOTES_FILE=$(mktemp)
+          {
+            echo "Unofficial Linux build of [Awakened PoE Trade](https://github.com/SnosMe/awakened-poe-trade) with fixes for Linux."
+            echo ""
+            echo "## What's improved for Linux"
+            echo ""
+            echo "$LINUX_NOTES"
+            if [ -n "$UPSTREAM_BODY" ]; then
+              echo ""
+              echo "---"
+              echo ""
+              echo "## What's new in upstream ${BASE_VERSION}"
+              echo ""
+              echo "$UPSTREAM_BODY"
+            fi
+          } > "$NOTES_FILE"
 
           if gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
             gh release upload "$TAG" main/dist/*.AppImage main/dist/latest-linux.yml --repo "${{ github.repository }}" --clobber
