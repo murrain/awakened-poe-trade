@@ -30,15 +30,24 @@ export class LinuxPriceCheckWindow {
       }
     });
 
-    // The standalone renderer sends used-recently with isOverlay=false after
+    // Hide when POE focus changes while the price-check window is visible.
+    // Both blur (user alt-tabs away) and focus (user clicks back into POE)
+    // should dismiss the price-check panel.
+    this.poeWindow.on("active-change", (_isActive: boolean) => {
+      if (this.window?.isVisible()) {
+        this.hideWindow();
+      }
+    });
+
+    // The standalone renderer signals readiness via a dedicated event after
     // Host.init() completes and the component mounts. This is the reliable
     // signal that the renderer is ready to receive item-text events via
     // executeJavaScript (the DOM event listener is registered by then).
-    this.server.onEventAnyClient("CLIENT->MAIN::used-recently", (e) => {
-      if (e.isOverlay || this.rendererReady) return;
+    this.server.onEventAnyClient("CLIENT->MAIN::price-check-ready", () => {
+      if (this.rendererReady) return;
       this.rendererReady = true;
       this.logger.write(
-        "debug [LinuxPriceCheck] renderer ready (used-recently received)",
+        "debug [LinuxPriceCheck] renderer ready (price-check-ready received)",
       );
       if (this.pendingPayload) {
         this.dispatchItemText(this.pendingPayload);
@@ -59,6 +68,7 @@ export class LinuxPriceCheckWindow {
       icon: path.join(__dirname, process.env.STATIC!, "icon.png"),
       show: false,
       frame: false,
+      type: "toolbar",
       backgroundColor: "#1f2937",
       skipTaskbar: true,
       focusable: true,
@@ -88,12 +98,19 @@ export class LinuxPriceCheckWindow {
     // Escape dismissal is handled by uiohook in Shortcuts.ts (same as
     // the overlay), since this window may not have keyboard focus.
 
+    // Hide when the price-check window itself loses focus (e.g. KDE
+    // task switcher appears via alt+tab). The game active-change event
+    // doesn't fire until a window is actually selected.
+    this.window.on("blur", () => {
+      if (this.window?.isVisible()) {
+        this.hideWindow();
+      }
+    });
+
     this.window.on("closed", () => {
       this.window = null;
       this.rendererReady = false;
     });
-
-    this.window.webContents.openDevTools({ mode: "detach" });
 
     const url =
       process.env.VITE_DEV_SERVER_URL ||
@@ -121,7 +138,7 @@ export class LinuxPriceCheckWindow {
     }).scaleFactor;
     const fontSize = 16;
     const width = Math.round(28.75 * fontSize);
-    const panelWidth = this.computePanelWidth(scaleFactor);
+    const panelWidth = this.computePanelWidth(bounds, scaleFactor);
     const middleX = bounds.x + bounds.width / 2;
     const side = payload.position.x > middleX ? "inventory" : "stash";
 
@@ -156,6 +173,9 @@ export class LinuxPriceCheckWindow {
     // show() both maps and focuses in a single WM operation (showInactive +
     // focus was not reliably transferring focus on KWin).
     this.window!.setAlwaysOnTop(true, "screen-saver");
+    // Suppress the game-blur that our show() will cause — we are
+    // intentionally stealing focus, not the user leaving the game.
+    this.poeWindow.suppressNextBlur();
     this.window!.show();
 
     if (this.rendererReady) {
@@ -199,10 +219,12 @@ export class LinuxPriceCheckWindow {
       });
   }
 
-  private computePanelWidth(scaleFactor: number): number {
+  private computePanelWidth(
+    bounds: { x: number; y: number; width: number; height: number },
+    scaleFactor: number,
+  ): number {
     // sidebar is 986px at Wx1600H, same ratio as OverlayWindow.vue
     const ratio = 986 / 1600;
-    const bounds = this.poeWindow.bounds;
     return Math.round((bounds.height * ratio) / scaleFactor);
   }
 }

@@ -1,8 +1,5 @@
 <template>
   <div id="app" class="text-sm font-poe-sc">
-    <div style="background:#c53030;color:white;padding:4px;font-size:12px">
-      PC:{{ config ? 'cfg-ok' : 'no-cfg' }} | ev:{{ eventStatus }}
-    </div>
     <div id="overlay-window" class="overflow-hidden relative w-full h-full"
       :style="{ '--game-panel': '0px' }">
       <PriceCheckWindow v-if="config" :config="config" />
@@ -40,35 +37,20 @@ export default defineComponent({
       }
     })
 
-    // Intercept outgoing events that should not be sent from the standalone window
-    const originalSendEvent = Host.sendEvent.bind(Host)
-    Host.sendEvent = (event: any) => {
-      // Don't send track-area — main process handles positioning
-      if (event.name === 'OVERLAY->MAIN::track-area') return
-      originalSendEvent(event)
-    }
-
-    const eventStatus = shallowRef('waiting')
-
     // Receive item-text dispatched via executeJavaScript from main process.
     // This bypasses the WebSocket lastActiveClient which is unreliable
     // (the overlay can reclaim it at any time).
     document.addEventListener('__price-check-item', ((e: CustomEvent) => {
-      const clip = e.detail?.payload?.clipboard ?? ''
-      eventStatus.value = `got:${clip.length}ch`
       Host.selfDispatch(e.detail)
     }) as EventListener)
-
-    // Verify evBus dispatch reaches listeners (same bus PriceCheckWindow uses)
-    Host.onEvent('MAIN->CLIENT::item-text', (e: any) => {
-      eventStatus.value += `|bus:target=${e?.target}`
-    })
 
     // When the overlay broadcasts hide-exclusive-widget, dismiss via the
     // same focus-game signal that the close button uses.
     Host.onEvent('MAIN->OVERLAY::hide-exclusive-widget', () => {
       Host.sendEvent({ name: 'OVERLAY->MAIN::focus-game', payload: undefined })
     })
+
+    provide('standaloneMode', true)
 
     provide<WidgetManager>('wm', {
       poePanelWidth: computed(() => 0),
@@ -99,14 +81,16 @@ export default defineComponent({
       }
     })
 
+    // Signal readiness via a dedicated event that does NOT participate
+    // in lastActiveClient rotation (unlike used-recently).
     onMounted(() => {
       Host.sendEvent({
-        name: 'CLIENT->MAIN::used-recently',
-        payload: { isOverlay: false }
+        name: 'CLIENT->MAIN::price-check-ready',
+        payload: undefined
       })
     })
 
-    return { config, eventStatus }
+    return { config }
   }
 })
 </script>
