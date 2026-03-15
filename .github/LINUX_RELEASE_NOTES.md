@@ -1,0 +1,4 @@
+- **Standalone price-check window** — price-check now opens in its own WM-managed window instead of the click-through overlay, fixing focus and interaction issues on X11/KDE.
+- **No more mouse stealing** — the overlay won't randomly grab your mouse focus while you're playing, so you don't have to alt-tab back into the game.
+- **Automatic updates** — you'll get notified when new builds are available, just like the Windows version.
+- **Clipboard cleanup** — clipboard is cleared after price-check so stale item data doesn't trigger false lookups.
