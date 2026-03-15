@@ -10,6 +10,8 @@ export class WidgetAreaTracker {
   private area!: Rectangle;
   private closeThreshold!: number;
   private hasEnteredArea = false;
+  private hasClickedInsideArea = false;
+  private listenersAttached = false;
 
   constructor(
     private server: ServerEvents,
@@ -47,22 +49,47 @@ export class WidgetAreaTracker {
         this.area = opts.area;
       }
 
-      this.hasEnteredArea = isPointInsideRect(this.from, this.area);
+      this.hasEnteredArea =
+        process.platform === "linux"
+          ? false
+          : isPointInsideRect(this.from, this.area);
+      this.hasClickedInsideArea = false;
       this.removeListeners();
-      uIOhook.addListener("mousemove", this.handleMouseMove);
-      uIOhook.addListener("mousedown", this.handleMouseDown);
       if (process.platform === "linux") {
         this.logger.write(
-          "debug [WidgetAreaTracker] track-area registered on Linux, activating overlay immediately",
+          `debug [WidgetAreaTracker] track-area registered on Linux, activating overlay immediately ` +
+            `(hasEnteredArea=${this.hasEnteredArea} from=${this.from.x},${this.from.y} ` +
+            `area=${this.area.x},${this.area.y} ${this.area.width}x${this.area.height})`,
         );
         this.overlay.assertOverlayActive();
+        return;
       }
+      this.attachListeners();
     });
   }
 
+  private attachListeners() {
+    if (this.listenersAttached) return;
+    uIOhook.addListener("mousemove", this.handleMouseMove);
+    uIOhook.addListener("mousedown", this.handleMouseDown);
+    this.listenersAttached = true;
+  }
+
   removeListeners() {
+    if (!this.listenersAttached) return;
     uIOhook.removeListener("mousemove", this.handleMouseMove);
     uIOhook.removeListener("mousedown", this.handleMouseDown);
+    this.listenersAttached = false;
+  }
+
+  confirmLinuxAreaClick() {
+    if (process.platform !== "linux") return;
+    this.hasClickedInsideArea = true;
+    this.hasEnteredArea = true;
+    this.logger.write(
+      "debug [WidgetAreaTracker] renderer confirmed price-check click inside tracked area",
+    );
+    this.attachListeners();
   }
 
   private readonly handleMouseMove = (e: UiohookMouseEvent) => {
@@ -83,7 +110,9 @@ export class WidgetAreaTracker {
 
       if (modifier === this.holdKey) {
         if (inside) {
-          this.hasEnteredArea = true;
+          if (process.platform !== "linux") {
+            this.hasEnteredArea = true;
+          }
           this.overlay.assertOverlayActive();
         }
         return;
@@ -95,7 +124,9 @@ export class WidgetAreaTracker {
           `debug [WidgetAreaTracker] activate: cursor inside area without holdKey` +
             ` (modifier=${modifier ?? "none"} holdKey=${this.holdKey})`,
         );
-        this.hasEnteredArea = true;
+        if (process.platform !== "linux") {
+          this.hasEnteredArea = true;
+        }
         this.overlay.assertOverlayActive();
       } else if (distance > this.closeThreshold) {
         if (process.platform === "linux") {
@@ -117,12 +148,15 @@ export class WidgetAreaTracker {
     }
 
     if (inside) {
-      this.hasEnteredArea = true;
+      if (process.platform !== "linux" || this.hasClickedInsideArea) {
+        this.hasEnteredArea = true;
+      }
       this.overlay.assertOverlayActive();
       return;
     }
 
     if (this.overlay.isInteractable) {
+      if (process.platform === "linux" && !this.hasClickedInsideArea) return;
       if (!this.hasEnteredArea) return;
       this.logger.write(
         `debug [WidgetAreaTracker] mouse left area: isInteractable=true hasEnteredArea=true platform=${process.platform}`,
@@ -138,10 +172,26 @@ export class WidgetAreaTracker {
 
   private readonly handleMouseDown = (e: UiohookMouseEvent) => {
     const inside = isPointInsideRect(e, this.area);
+    this.logger.write(
+      `debug [WidgetAreaTracker] mousedown at ${e.x},${e.y} inside=${inside} area=${this.area.x},${this.area.y} ${this.area.width}x${this.area.height}`,
+    );
+    if (
+      process.platform === "linux" &&
+      inside &&
+      this.overlay.isInteractable &&
+      !this.hasClickedInsideArea
+    ) {
+      this.logger.write(
+        "debug [WidgetAreaTracker] first inside mousedown on Linux: waiting for renderer confirmation",
+      );
+      return;
+    }
     if (inside) {
       this.logger.write(
         "debug [WidgetAreaTracker] mousedown inside area, activating overlay",
       );
+      this.hasClickedInsideArea = true;
+      this.hasEnteredArea = true;
       if (
         this.overlay.isAwaitingInputEnterReactivation &&
         !this.overlay.isInteractable

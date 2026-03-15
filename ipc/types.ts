@@ -208,6 +208,16 @@ type IpcUserAction = Event<
       action: "stash-search";
       text: string;
     }
+  | {
+      action: "debug-log";
+      text: string;
+    }
+  | {
+      action: "activate-overlay";
+    }
+  | {
+      action: "price-check-clicked";
+    }
 >;
 
 interface Event<TName extends string, TPayload = undefined> {

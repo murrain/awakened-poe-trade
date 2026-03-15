@@ -282,6 +282,26 @@ export default defineComponent({
       }
     })
 
+    if (Host.isElectron && navigator.userAgent.includes('Linux')) {
+      document.addEventListener('mousedown', (e) => {
+        const target = e.target as Element | null
+        const inPriceWindow = Boolean(target?.closest('#price-window'))
+        Host.sendEvent({
+          name: 'CLIENT->MAIN::user-action',
+          payload: {
+            action: 'debug-log',
+            text: `overlay mousedown client=${e.clientX},${e.clientY} target=${target?.tagName ?? 'unknown'} priceWindow=${inPriceWindow}`
+          }
+        })
+        if (inPriceWindow) {
+          Host.sendEvent({
+            name: 'CLIENT->MAIN::user-action',
+            payload: { action: 'price-check-clicked' }
+          })
+        }
+      }, true)
+    }
+
     function sliceLastLines (text: string, numLines: number) {
       let lfIndex = text.length - 1
       for (let i = 0; i < numLines; i++) {
