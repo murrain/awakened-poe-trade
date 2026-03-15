@@ -21,7 +21,8 @@ if (!process.env.VITE_DEV_SERVER_URL) {
   server.addListener('request', (req, res) => {
     if (req.url?.startsWith('/config') || req.url?.startsWith('/uploads') || req.url?.startsWith('/proxy')) return
 
-    const filePath = (req.url === '/') ? '/index.html' : req.url!
+    const rawUrl = req.url!.split('?')[0]
+    const filePath = (rawUrl === '/') ? '/index.html' : rawUrl
     switch (path.extname(filePath)) {
       case '.html': res.setHeader('content-type', 'text/html'); break;
       case '.js': res.setHeader('content-type', 'text/javascript'); break;

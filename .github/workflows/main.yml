@@ -1,11 +1,7 @@
 name: Build
 
 on:
-  push:
-    branches:
-      - 'master'
-    tags-ignore:
-      - '**'
+  pull_request:
     paths-ignore:
       - 'docs/**'
       - README.md
@@ -29,6 +25,69 @@ jobs:
         name: renderer-dist
         path: ./renderer/dist
         retention-days: 1
+
+  release-notes-preview:
+    if: github.base_ref == 'linux-v2'
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    steps:
+    - uses: actions/checkout@v4
+    - name: Generate and post release notes preview
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        UPSTREAM_REPO: SnosMe/awakened-poe-trade
+      run: |
+        set -euo pipefail
+
+        BASE_VERSION=$(node -e "const pkg=require('./main/package.json'); process.stdout.write(pkg.version.replace(/\d{3}$/, ''))")
+
+        UPSTREAM_BODY=""
+        for TAG_CANDIDATE in "v${BASE_VERSION}" "${BASE_VERSION}"; do
+          UPSTREAM_BODY=$(gh release view "$TAG_CANDIDATE" \
+            --repo "$UPSTREAM_REPO" \
+            --json body --jq '.body' 2>/dev/null || true)
+          if [ -n "$UPSTREAM_BODY" ]; then break; fi
+        done
+
+        LINUX_NOTES_FILE=".github/LINUX_RELEASE_NOTES.md"
+        if [ -f "$LINUX_NOTES_FILE" ]; then
+          LINUX_NOTES=$(cat "$LINUX_NOTES_FILE")
+        else
+          LINUX_NOTES="- Unofficial Linux AppImage build with overlay and focus fixes."
+        fi
+
+        COMMENT_BODY=$(mktemp)
+        {
+          echo "### 📋 Release Notes Preview"
+          echo ""
+          echo "Unofficial Linux build of [Awakened PoE Trade](https://github.com/SnosMe/awakened-poe-trade) with fixes for Linux."
+          echo ""
+          echo "## What's improved for Linux"
+          echo ""
+          echo "$LINUX_NOTES"
+          if [ -n "$UPSTREAM_BODY" ]; then
+            echo ""
+            echo "---"
+            echo ""
+            echo "## What's new in upstream ${BASE_VERSION}"
+            echo ""
+            echo "$UPSTREAM_BODY"
+          fi
+        } > "$COMMENT_BODY"
+
+        # Update or create the preview comment
+        EXISTING=$(gh api "repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
+          --jq '.[] | select(.body | startswith("### 📋 Release Notes Preview")) | .id' 2>/dev/null | head -1)
+
+        if [ -n "$EXISTING" ]; then
+          gh api "repos/${{ github.repository }}/issues/comments/$EXISTING" \
+            -X PATCH -F "body=@$COMMENT_BODY"
+        else
+          gh pr comment "${{ github.event.pull_request.number }}" --body-file "$COMMENT_BODY"
+        fi
+
+        rm -f "$COMMENT_BODY"
 
   package:
     needs: renderer

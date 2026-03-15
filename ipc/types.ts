@@ -87,7 +87,8 @@ export type IpcEvent =
   | IpcItemText
   | IpcOcrText
   | IpcConfigChanged
-  | IpcUserAction;
+  | IpcUserAction
+  | IpcPriceCheckReady;
 
 export type IpcEventPayload<
   Name extends IpcEvent["name"],
@@ -208,7 +209,21 @@ type IpcUserAction = Event<
       action: "stash-search";
       text: string;
     }
+  | {
+      action: "debug-log";
+      text: string;
+    }
+  | {
+      action: "activate-overlay";
+    }
+  | {
+      action: "price-check-clicked";
+    }
 >;
+
+// Standalone price-check renderer signals readiness without
+// participating in lastActiveClient rotation.
+type IpcPriceCheckReady = Event<"CLIENT->MAIN::price-check-ready">;
 
 interface Event<TName extends string, TPayload = undefined> {
   name: TName;

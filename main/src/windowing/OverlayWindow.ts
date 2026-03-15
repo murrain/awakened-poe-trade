@@ -12,6 +12,7 @@ export class OverlayWindow {
   public isInteractable = false;
   public wasUsedRecently = true;
   private window?: BrowserWindow;
+  get electronWindow() { return this.window; }
   public overlayKey: string = "Shift + Space";
   private isOverlayKeyUsed = false;
   private allowInputEnterReactivation = false;
@@ -96,6 +97,17 @@ export class OverlayWindow {
       OverlayController.activateOverlay();
       this.poeWindow.isActive = false;
     }
+  };
+
+  refreshOverlayActive = () => {
+    if (this.isInteractable) {
+      this.logger.write("debug [Overlay] refreshOverlayActive: reactivating");
+      OverlayController.activateOverlay();
+      this.poeWindow.isActive = false;
+      return;
+    }
+
+    this.assertOverlayActive();
   };
 
   returnFocusToGame = () => {
@@ -264,10 +276,8 @@ export class OverlayWindow {
     if (process.platform === "linux") {
       if (isActive && this.isInteractable) {
         this.logger.write(
-          "debug [Overlay] game regained focus while interactable, preserving widget session",
+          "debug [Overlay] game focus event while interactable: keeping overlay active on Linux",
         );
-        this.isInteractable = false;
-        this.armInputEnterReactivation("game focus return");
       }
       const preserveWidgets = isActive && this.allowInputEnterReactivation;
       this.logger.write(
