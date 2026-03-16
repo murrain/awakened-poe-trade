@@ -26,7 +26,10 @@ export function createFilters (
     trade: {
       offline: false,
       onlineInLeague: false,
-      merchantOnly: item.category !== ItemCategory.DivinationCard,
+      merchantOnly:
+        // these are Divination Cards, and some items at start of league
+        // that are on Currency Exchange but was not added to Bulk section of site yet
+        !(item.info.exchangeable && !item.info.tradeTag),
       listed: undefined,
       currency: opts.currency,
       league: opts.league,
@@ -442,7 +445,7 @@ function createGemFilters (
       disabled: (item.gemLevel! < 5)
     }
 
-    if (item.isCorrupted && item.quality) {
+    if (item.quality) {
       filters.quality = {
         value: item.quality,
         disabled: (item.quality < 20)
