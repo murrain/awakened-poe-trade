@@ -439,48 +439,19 @@ function createGemFilters (
     }
   }
 
-  if (item.info.gem!.awakened) {
-    filters.gemLevel = {
-      value: item.gemLevel!,
-      disabled: (item.gemLevel! < 5)
-    }
-
-    if (item.quality) {
-      filters.quality = {
-        value: item.quality,
-        disabled: (item.quality < 20)
-      }
-    }
-
-    return filters
-  }
-
-  if (SPECIAL_SUPPORT_GEM.includes(item.info.refName)) {
-    filters.gemLevel = {
-      value: item.gemLevel!,
-      disabled: (item.gemLevel! < 3)
-    }
-
-    if (item.isCorrupted && item.quality) {
-      filters.quality = {
-        value: item.quality,
-        disabled: true
-      }
-    }
-
-    return filters
+  filters.gemLevel = {
+    value: item.gemLevel!,
+    disabled: (item.gemLevel! < item.info.gem!.maxLevel)
   }
 
   if (item.quality) {
     filters.quality = {
       value: item.quality,
-      disabled: (item.quality < 16)
+      disabled: (item.info.gem!.maxLevel === 1) ? false
+        : (item.info.gem!.maxLevel === 20 && !item.info.gem!.transfigured)
+            ? (item.quality < 16)
+            : (item.quality < 20)
     }
-  }
-
-  filters.gemLevel = {
-    value: item.gemLevel!,
-    disabled: (item.gemLevel! < 19)
   }
 
   return filters
