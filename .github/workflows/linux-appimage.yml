@@ -6,7 +6,7 @@ on:
     branches:
       - linux-v2
   schedule:
-    - cron: '0 */6 * * *'
+    - cron: "0 */6 * * *"
 
 concurrency:
   group: linux-sync-build
@@ -16,6 +16,10 @@ env:
   UPSTREAM_REPO: SnosMe/awakened-poe-trade
   UPSTREAM_BRANCH: master
   PATCH_BRANCH: linux-v2
+  UPSTREAM_OWNED_FILES: >-
+    main/package.json
+    main/package-lock.json
+    main/src/AppUpdater.ts
 
 jobs:
   sync-master:
@@ -96,6 +100,14 @@ jobs:
           set -euo pipefail
           git checkout -B build-linux origin/master
           git merge --no-edit "origin/${PATCH_BRANCH}"
+
+      - name: Restore upstream-owned release metadata
+        run: |
+          set -euo pipefail
+          # Linux packaging rewrites these files later in the job.
+          # Keeping them sourced from master prevents linux-v2 metadata drift
+          # from blocking the sync merge.
+          git checkout origin/master -- ${{ env.UPSTREAM_OWNED_FILES }}
 
       - uses: actions/setup-node@v4
         with:
@@ -281,6 +293,14 @@ jobs:
           git fetch origin master
           git checkout -B build-linux origin/master
           git merge --no-edit origin/linux-v2
+
+      - name: Restore upstream-owned release metadata
+        run: |
+          set -euo pipefail
+          # Linux packaging rewrites these files later in the job.
+          # Keeping them sourced from master prevents linux-v2 metadata drift
+          # from blocking the sync merge.
+          git checkout origin/master -- ${{ env.UPSTREAM_OWNED_FILES }}
 
       - uses: actions/setup-node@v4
         with:
