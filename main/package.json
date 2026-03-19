@@ -1,6 +1,6 @@
 {
   "name": "awakened-poe-trade",
-  "version": "3.28.102016",
+  "version": "3.28.102",
   "private": true,
   "scripts": {
     "dev": "node build/script.mjs",
@@ -12,11 +12,11 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/murrain/awakened-poe-trade.git"
+    "url": "https://github.com/SnosMe/awakened-poe-trade.git"
   },
   "main": "dist/main.js",
   "dependencies": {
-    "electron-overlay-window": "github:murrain/electron-overlay-window#master",
+    "electron-overlay-window": "4.0.2",
     "uiohook-napi": "1.5.4"
   },
   "devDependencies": {
