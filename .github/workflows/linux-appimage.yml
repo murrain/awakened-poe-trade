@@ -13,6 +13,14 @@ env:
   UPSTREAM_REPO: SnosMe/awakened-poe-trade
   UPSTREAM_BRANCH: master
   PATCH_BRANCH: linux-v2
+  # Files whose master version always wins during the linux-v2 merge.
+  # The build job rewrites these anyway, so taking master's copy
+  # prevents metadata drift on linux-v2 from causing merge conflicts.
+  UPSTREAM_OWNED_FILES: >-
+    .github/workflows/linux-appimage.yml
+    main/package.json
+    main/package-lock.json
+    main/src/AppUpdater.ts
 
 jobs:
   sync-master:
@@ -92,7 +100,21 @@ jobs:
         run: |
           set -euo pipefail
           git checkout -B build-linux origin/master
-          git merge --no-edit "origin/${PATCH_BRANCH}"
+          git merge --no-commit --no-ff "origin/${PATCH_BRANCH}" || true
+
+          # Keep master's version of files that the build rewrites anyway.
+          # This prevents linux-v2 metadata drift from blocking the merge.
+          git checkout origin/master -- ${{ env.UPSTREAM_OWNED_FILES }}
+          git add ${{ env.UPSTREAM_OWNED_FILES }}
+
+          UNRESOLVED=$(git diff --name-only --diff-filter=U)
+          if [ -n "$UNRESOLVED" ]; then
+            echo "Unresolved merge conflicts remain:"
+            echo "$UNRESOLVED"
+            exit 1
+          fi
+
+          git commit --no-edit
 
       - uses: actions/setup-node@v4
         with:
@@ -277,7 +299,20 @@ jobs:
           set -euo pipefail
           git fetch origin master
           git checkout -B build-linux origin/master
-          git merge --no-edit origin/linux-v2
+          git merge --no-commit --no-ff origin/linux-v2 || true
+
+          # Keep master's version of files that the build rewrites anyway.
+          git checkout origin/master -- ${{ env.UPSTREAM_OWNED_FILES }}
+          git add ${{ env.UPSTREAM_OWNED_FILES }}
+
+          UNRESOLVED=$(git diff --name-only --diff-filter=U)
+          if [ -n "$UNRESOLVED" ]; then
+            echo "Unresolved merge conflicts remain:"
+            echo "$UNRESOLVED"
+            exit 1
+          fi
+
+          git commit --no-edit
 
       - uses: actions/setup-node@v4
         with:
