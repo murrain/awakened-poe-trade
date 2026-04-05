@@ -205,7 +205,7 @@ export function createFilters (
       }
       filters.searchRelaxed = {
         category: item.category,
-        disabled: disabled
+        disabled
       }
     }
   }

@@ -140,8 +140,8 @@ export function tryParseTranslation (
   for (const combination of _statPlaceholderGenerator(stat.string)) {
     const found = findAndResolveTranslation({
       matchStr: combination.stat,
-      modType: modType,
-      itemCategory: itemCategory,
+      modType,
+      itemCategory,
       roll: (combination.values.length === 1) ? combination.values[0].roll : undefined
     })
     if (!found || !(modType in found.stat.trade.ids)) {

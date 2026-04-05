@@ -222,7 +222,7 @@ export default defineComponent({
             width,
             height: anchor.height
           },
-          dpr: dpr
+          dpr
         }
       }
       closeBrowser()
