@@ -13,7 +13,6 @@ env:
   PATCH_BRANCH: linux-v2
   UPSTREAM_OWNED_FILES: >-
     .github/workflows/linux-appimage.yml
-    .github/workflows/linux-appimage-build.yml
     main/package.json
     main/package-lock.json
     main/src/AppUpdater.ts
