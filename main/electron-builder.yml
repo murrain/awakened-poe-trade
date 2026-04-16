@@ -31,3 +31,4 @@ mac:
 appImage:
   executableArgs:
   - "--sandbox"
+  - "--ozone-platform=x11"
