@@ -2,6 +2,9 @@ name: Linux AppImage
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - master
   schedule:
     - cron: "0 */6 * * *"
 
@@ -12,19 +15,16 @@ concurrency:
 env:
   UPSTREAM_REPO: SnosMe/awakened-poe-trade
   UPSTREAM_BRANCH: master
-  PATCH_BRANCH: linux-v2
   # Keep these fork-owned files when syncing upstream into master.
   # They intentionally diverge from upstream and would otherwise block sync.
   SYNC_OWNED_FILES: >-
     .github/workflows/linux-appimage.yml
     .github/workflows/linux-appimage-build.yml
     main/electron-builder.yml
-    main/package.json
-    main/package-lock.json
-    main/src/AppUpdater.ts
 
 jobs:
   sync-master:
+    if: github.event_name != 'push'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -42,10 +42,10 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-      - name: Fetch upstream and patch branch
+      - name: Fetch upstream master
         run: |
           git remote add upstream https://github.com/${{ env.UPSTREAM_REPO }}.git
-          git fetch origin master ${{ env.PATCH_BRANCH }}
+          git fetch origin master
           git fetch upstream ${{ env.UPSTREAM_BRANCH }}
 
       - name: Sync fork master to upstream
@@ -57,6 +57,8 @@ jobs:
           UPSTREAM_SHA=$(git rev-parse "upstream/${UPSTREAM_BRANCH}")
 
           SHOULD_BUILD=false
+          PUSHED_UPDATE=false
+
           if ! git merge-base --is-ancestor "$UPSTREAM_SHA" origin/master; then
             git merge --no-commit --no-ff "$UPSTREAM_SHA" || true
 
@@ -73,18 +75,28 @@ jobs:
 
             git commit --no-edit
             git push origin HEAD:master
-            SHOULD_BUILD=true
+            PUSHED_UPDATE=true
           fi
 
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          # Manual dispatch should build the current master only when the sync
+          # step did not already push a fresh master commit that will trigger a
+          # separate push-based release run.
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "$PUSHED_UPDATE" = false ]; then
             SHOULD_BUILD=true
           fi
 
           echo "should_build=$SHOULD_BUILD" >> "$GITHUB_OUTPUT"
 
-  build-from-sync:
+  build-from-dispatch:
     needs: sync-master
-    if: needs.sync-master.outputs.should_build == 'true'
+    if: github.event_name == 'workflow_dispatch' && needs.sync-master.outputs.should_build == 'true'
+    uses: ./.github/workflows/linux-appimage-build.yml
+    secrets: inherit
+    with:
+      checkout_ref: master
+
+  build-from-push:
+    if: github.event_name == 'push'
     uses: ./.github/workflows/linux-appimage-build.yml
     secrets: inherit
     with:

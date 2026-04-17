@@ -52,6 +52,8 @@ export class HostClipboard {
         if (isPoeItem(textAfter)) {
           if (this.shouldRestore) {
             clipboard.writeText(textBefore)
+          } else {
+            clipboard.writeText('')
           }
           this.pollPromise = undefined
           resolve(textAfter)

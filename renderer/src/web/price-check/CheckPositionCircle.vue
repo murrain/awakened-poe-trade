@@ -21,12 +21,14 @@ import { computed } from 'vue'
 
 const props = defineProps<{
   position: { x: number, y: number }
+  origin: { x: number, y: number }
 }>()
 
 const relativePos = computed(() => {
+  const dpr = window.devicePixelRatio || 1
   return {
-    top: `calc(${props.position.y - window.screenY}px - 2.5rem)`,
-    left: `calc(${props.position.x - window.screenX}px - 2.5rem)`
+    top: `calc(${(props.position.y - props.origin.y) / dpr}px - 2.5rem)`,
+    left: `calc(${(props.position.x - props.origin.x) / dpr}px - 2.5rem)`
   }
 })
 </script>

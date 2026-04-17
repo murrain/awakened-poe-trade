@@ -29,6 +29,7 @@ mac:
   identity: null
   x64ArchFiles: "*"
 appImage:
+  artifactName: "Awakened-PoE-Trade-${version}-murrain.${ext}"
   executableArgs:
   - "--sandbox"
   - "--ozone-platform=x11"
