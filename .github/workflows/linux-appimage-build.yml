@@ -71,12 +71,17 @@ jobs:
           let suffix = 1
           const escapedBase = base.replaceAll('.', '\\.')
           const escapedFork = fork.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-          const tagPattern = new RegExp(`^v?${escapedBase}(\\d{3})-${escapedFork}$`)
-
           for (const tag of tags) {
-            const match = tag.match(tagPattern)
-            if (!match) continue
-            suffix = Math.max(suffix, Number(match[1]) + 1)
+            const newMatch = tag.match(new RegExp(`^v?${escapedBase}(\\d{3})-${escapedFork}$`))
+            if (newMatch) {
+              suffix = Math.max(suffix, Number(newMatch[1]) + 1)
+              continue
+            }
+
+            const legacyMatch = tag.match(new RegExp(`^v?${escapedBase}(\\d{3})-linux$`))
+            if (legacyMatch) {
+              suffix = Math.max(suffix, Number(legacyMatch[1]) + 1)
+            }
           }
 
           process.stdout.write(`${base}${String(suffix).padStart(3, '0')}`)
