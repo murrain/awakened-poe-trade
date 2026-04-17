@@ -20,7 +20,15 @@ env:
   SYNC_OWNED_FILES: >-
     .github/workflows/linux-appimage.yml
     .github/workflows/linux-appimage-build.yml
+    .github/workflows/main.yml
     main/electron-builder.yml
+  # These files get rewritten by the Linux build workflow on every run
+  # (npm version, npm pkg set, npm install --package-lock-only).
+  # Any merge conflict in them is resolved by taking the upstream version so
+  # we pick up new dependencies / postinstall hooks automatically.
+  SYNC_UPSTREAM_WINS_FILES: >-
+    main/package.json
+    main/package-lock.json
 
 jobs:
   sync-master:
@@ -63,8 +71,25 @@ jobs:
             git merge --no-commit --no-ff "$UPSTREAM_SHA" || true
 
             # Keep fork-owned workflow and Linux packaging metadata on master.
-            git checkout origin/master -- ${{ env.SYNC_OWNED_FILES }}
-            git add ${{ env.SYNC_OWNED_FILES }}
+            # Only check out paths that exist on the fork side so a file
+            # deleted on fork but still present upstream does not abort the
+            # resolution.
+            for path in ${{ env.SYNC_OWNED_FILES }}; do
+              if git cat-file -e "origin/master:$path" 2>/dev/null; then
+                git checkout origin/master -- "$path"
+                git add -- "$path"
+              fi
+            done
+
+            # Take upstream's version for files the build workflow rewrites
+            # anyway. This lets upstream introduce new devDependencies or
+            # postinstall hooks without blocking the scheduled sync.
+            for path in ${{ env.SYNC_UPSTREAM_WINS_FILES }}; do
+              if git cat-file -e "$UPSTREAM_SHA:$path" 2>/dev/null; then
+                git checkout "$UPSTREAM_SHA" -- "$path"
+                git add -- "$path"
+              fi
+            done
 
             UNRESOLVED=$(git diff --name-only --diff-filter=U)
             if [ -n "$UNRESOLVED" ]; then
@@ -73,9 +98,16 @@ jobs:
               exit 1
             fi
 
-            git commit --no-edit
-            git push origin HEAD:master
-            PUSHED_UPDATE=true
+            # If every change came from fork-owned or upstream-wins resolution
+            # there may be nothing new to commit.
+            if git diff --cached --quiet; then
+              echo "Upstream sync produced no net changes; skipping commit."
+              git merge --abort || true
+            else
+              git commit --no-edit
+              git push origin HEAD:master
+              PUSHED_UPDATE=true
+            fi
           fi
 
           # Manual dispatch should build the current master only when the sync
