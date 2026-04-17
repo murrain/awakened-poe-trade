@@ -40,7 +40,15 @@ jobs:
       run: |
         set -euo pipefail
 
-        BASE_VERSION=$(node -e "const pkg=require('./main/package.json'); process.stdout.write(pkg.version.replace(/-murrain\\.linux\\.\\d+$/, ''))")
+        UPSTREAM_RELEASE_TAG=$(gh release list --repo "$UPSTREAM_REPO" --limit 1 --json tagName --jq '.[0].tagName // ""')
+        export UPSTREAM_RELEASE_TAG
+        BASE_VERSION=$(node <<'NODE'
+        const tag = (process.env.UPSTREAM_RELEASE_TAG || '').trim()
+        const match = tag.match(/^v?(\d+\.\d+\.\d+)$/)
+        if (!match) throw new Error(`Unexpected upstream release tag: ${tag}`)
+        process.stdout.write(match[1])
+        NODE
+        )
 
         UPSTREAM_BODY=""
         for TAG_CANDIDATE in "v${BASE_VERSION}" "${BASE_VERSION}"; do
