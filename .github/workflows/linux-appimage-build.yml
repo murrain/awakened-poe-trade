@@ -1,0 +1,302 @@
+name: Linux AppImage Build
+
+on:
+  workflow_call:
+    inputs:
+      checkout_ref:
+        description: Ref to check out before merging linux packaging changes onto master
+        required: true
+        type: string
+
+env:
+  UPSTREAM_REPO: SnosMe/awakened-poe-trade
+  PATCH_BRANCH: linux-v2
+  UPSTREAM_OWNED_FILES: >-
+    .github/workflows/linux-appimage.yml
+    main/package.json
+    main/package-lock.json
+    main/src/AppUpdater.ts
+  PATCH_OWNED_FILES: >-
+    ipc/types.ts
+    main/electron-builder.yml
+    main/src/shortcuts/Shortcuts.ts
+    main/src/windowing/GameWindow.ts
+    main/src/windowing/OverlayWindow.ts
+    main/src/windowing/WidgetAreaTracker.ts
+    renderer/src/web/overlay/OverlayWindow.vue
+    renderer/src/web/price-check/CheckPositionCircle.vue
+    renderer/src/web/price-check/PriceCheckWindow.vue
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout source ref
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.checkout_ref }}
+          fetch-depth: 0
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Fetch master and patch branch
+        run: |
+          git fetch origin master ${{ env.PATCH_BRANCH }}
+
+      - name: Merge linux-v2 onto master
+        id: merge
+        run: |
+          set -euo pipefail
+          MERGE_OK=true
+          SUMMARY_FILE=$(mktemp)
+          git checkout -B build-linux origin/master
+          git merge --no-commit --no-ff "origin/${PATCH_BRANCH}" || true
+
+          # Linux packaging rewrites these files later in the job.
+          # Keeping them sourced from master prevents linux-v2 metadata drift
+          # from blocking the sync merge.
+          git checkout origin/master -- ${{ env.UPSTREAM_OWNED_FILES }}
+          git add ${{ env.UPSTREAM_OWNED_FILES }}
+
+          UNRESOLVED=$(git diff --name-only --diff-filter=U)
+          if [ -n "$UNRESOLVED" ]; then
+            PATCH_OWNED_SET=$(printf '%s\n' "$PATCH_OWNED_FILES" | tr ' ' '\n')
+            AUTO_RESOLVED=()
+            UNHANDLED=()
+
+            while IFS= read -r path; do
+              [ -n "$path" ] || continue
+
+              if printf '%s\n' "$PATCH_OWNED_SET" | grep -Fxq -- "$path"; then
+                git checkout --theirs -- "$path"
+                git add -- "$path"
+                AUTO_RESOLVED+=("$path")
+              else
+                UNHANDLED+=("$path")
+              fi
+            done < <(printf '%s\n' "$UNRESOLVED")
+
+            if [ "${#AUTO_RESOLVED[@]}" -gt 0 ]; then
+              echo "Auto-resolved linux-v2-owned conflicts:"
+              printf '%s\n' "${AUTO_RESOLVED[@]}"
+            fi
+
+            if [ "${#UNHANDLED[@]}" -gt 0 ]; then
+              echo "Unhandled merge conflicts remain:"
+              printf '%s\n' "${UNHANDLED[@]}"
+              MERGE_OK=false
+            fi
+          fi
+
+          if [ "$MERGE_OK" = false ]; then
+            {
+              echo "Linux AppImage merge conflict summary"
+              echo ""
+              echo "Repository: ${{ github.repository }}"
+              echo "Workflow: ${{ github.workflow }}"
+              echo "Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+              echo "Triggered by: ${{ github.event_name }}"
+              echo "Checkout ref: ${{ inputs.checkout_ref }}"
+              echo "Base branch: master"
+              echo "Patch branch: ${PATCH_BRANCH}"
+              echo ""
+              if [ "${#AUTO_RESOLVED[@]}" -gt 0 ]; then
+                echo "Auto-resolved linux-v2-owned conflicts:"
+                printf '%s\n' "${AUTO_RESOLVED[@]}"
+                echo ""
+              fi
+              echo "Unhandled conflicts:"
+              printf '%s\n' "${UNHANDLED[@]}"
+            } > "$SUMMARY_FILE"
+
+            cat "$SUMMARY_FILE" >> "$GITHUB_STEP_SUMMARY"
+            {
+              echo "conflict_summary<<EOF"
+              cat "$SUMMARY_FILE"
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
+          fi
+
+          echo "merge_ok=$MERGE_OK" >> "$GITHUB_OUTPUT"
+
+          if [ "$MERGE_OK" = true ]; then
+            git commit --no-edit
+          fi
+
+      - uses: actions/setup-node@v4
+        if: steps.merge.outputs.merge_ok == 'true'
+        with:
+          node-version: 20
+
+      - name: Compute fork version and patch main package metadata
+        if: steps.merge.outputs.merge_ok == 'true'
+        id: version
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          BASE_VERSION=$(git show origin/master:main/package.json | node -e "const fs=require('fs'); const pkg=JSON.parse(fs.readFileSync(0,'utf8')); process.stdout.write(pkg.version)")
+          LATEST_TAG=$(gh release list --repo "${{ github.repository }}" --limit 100 --json tagName --jq 'map(select(.tagName | endswith("-linux")))[0].tagName // ""')
+
+          export BASE_VERSION
+          export LATEST_TAG
+          FORK_VERSION=$(node <<'NODE'
+          const base = (process.env.BASE_VERSION || '').trim()
+          const latestTag = (process.env.LATEST_TAG || '').trim()
+
+          const baseMatch = base.match(/^(\d+)\.(\d+)\.(\d+)$/)
+          if (!baseMatch) throw new Error(`Unexpected upstream version: ${base}`)
+
+          const [, major, minor, patch] = baseMatch
+          let suffix = 1
+
+          const latestMatch = latestTag.match(/^v?(\d+)\.(\d+)\.(\d+)-linux$/)
+          if (latestMatch) {
+            const [, latestMajor, latestMinor, latestPatch] = latestMatch
+            if (
+              latestMajor === major &&
+              latestMinor === minor &&
+              latestPatch.length > 3 &&
+              latestPatch.slice(0, -3) === patch
+            ) {
+              suffix = Number(latestPatch.slice(-3)) + 1
+            }
+          }
+
+          process.stdout.write(
+            `${major}.${minor}.${patch}${String(suffix).padStart(3, '0')}`,
+          )
+          NODE
+          )
+
+          echo "base_version=$BASE_VERSION" >> "$GITHUB_OUTPUT"
+          echo "fork_version=$FORK_VERSION" >> "$GITHUB_OUTPUT"
+
+          cd main
+          npm version "$FORK_VERSION" --no-git-tag-version --allow-same-version
+          npm pkg set repository.url="https://github.com/murrain/awakened-poe-trade.git"
+          npm pkg set dependencies.electron-overlay-window="github:murrain/electron-overlay-window"
+
+          node <<'NODE'
+          const fs = require('fs')
+          const path = 'src/AppUpdater.ts'
+          const marker = "autoUpdater.setFeedURL({ provider: 'github', owner: 'murrain', repo: 'awakened-poe-trade' })"
+          let text = fs.readFileSync(path, 'utf8')
+          if (!text.includes(marker)) {
+            text = text.replace(
+              '// https://www.electron.build',
+              `    ${marker}\n    // https://www.electron.build`,
+            )
+            fs.writeFileSync(path, text)
+          }
+          NODE
+
+          npm install electron-overlay-window@github:murrain/electron-overlay-window --package-lock-only
+
+      - name: Build renderer
+        if: steps.merge.outputs.merge_ok == 'true'
+        run: |
+          cd renderer
+          npm ci --legacy-peer-deps
+          npm run make-index-files
+          npm run build
+
+      - name: Build main
+        if: steps.merge.outputs.merge_ok == 'true'
+        run: |
+          cd main
+          npm ci
+          npm run build
+
+      - name: Package AppImage
+        if: steps.merge.outputs.merge_ok == 'true'
+        run: |
+          cd main
+          npx electron-builder build --linux AppImage -p never
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload AppImage artifact
+        if: steps.merge.outputs.merge_ok == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: appimage-${{ steps.version.outputs.fork_version }}
+          path: |
+            main/dist/*.AppImage
+            main/dist/latest-linux.yml
+          retention-days: 7
+
+      - name: Publish release
+        if: steps.merge.outputs.merge_ok == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          FORK_VERSION: ${{ steps.version.outputs.fork_version }}
+          BASE_VERSION: ${{ steps.version.outputs.base_version }}
+        run: |
+          set -euo pipefail
+
+          TAG="v${FORK_VERSION}-linux"
+          TITLE="Awakened PoE Trade v${FORK_VERSION} (Linux)"
+
+          # Fetch upstream release notes for the base version
+          UPSTREAM_BODY=""
+          for TAG_CANDIDATE in "v${BASE_VERSION}" "${BASE_VERSION}"; do
+            UPSTREAM_BODY=$(gh release view "$TAG_CANDIDATE" \
+              --repo "${{ env.UPSTREAM_REPO }}" \
+              --json body --jq '.body' 2>/dev/null || true)
+            if [ -n "$UPSTREAM_BODY" ]; then break; fi
+          done
+
+          # Read Linux-specific notes from repo file, fall back to default
+          LINUX_NOTES_FILE=".github/LINUX_RELEASE_NOTES.md"
+          if [ -f "$LINUX_NOTES_FILE" ]; then
+            LINUX_NOTES=$(cat "$LINUX_NOTES_FILE")
+          else
+            LINUX_NOTES="- Unofficial Linux AppImage build with overlay and focus fixes."
+          fi
+
+          NOTES_FILE=$(mktemp)
+          {
+            echo "Unofficial Linux build of [Awakened PoE Trade](https://github.com/SnosMe/awakened-poe-trade) with fixes for Linux."
+            echo ""
+            echo "## What's improved for Linux"
+            echo ""
+            echo "$LINUX_NOTES"
+            if [ -n "$UPSTREAM_BODY" ]; then
+              echo ""
+              echo "---"
+              echo ""
+              echo "## What's new in upstream ${BASE_VERSION}"
+              echo ""
+              echo "$UPSTREAM_BODY"
+            fi
+          } > "$NOTES_FILE"
+
+          if gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            gh release upload "$TAG" main/dist/*.AppImage main/dist/latest-linux.yml --repo "${{ github.repository }}" --clobber
+            gh release edit "$TAG" --repo "${{ github.repository }}" --title "$TITLE" --notes-file "$NOTES_FILE"
+          else
+            gh release create "$TAG" \
+              --repo "${{ github.repository }}" \
+              --title "$TITLE" \
+              --notes-file "$NOTES_FILE" \
+              --latest \
+              main/dist/*.AppImage \
+              main/dist/latest-linux.yml
+          fi
+
+          rm -f "$NOTES_FILE"
+
+      - name: Fail on unresolved merge conflicts
+        if: steps.merge.outputs.merge_ok != 'true'
+        run: |
+          echo "Unresolved merge conflicts remain after applying the Linux conflict policy."
+          echo "${{ steps.merge.outputs.conflict_summary }}"
+          exit 1
