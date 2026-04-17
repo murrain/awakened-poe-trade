@@ -1,11 +1,11 @@
 <template>
   <div
     style="top: 0; left: 0; height: 100%; width: 100%; position: absolute;"
-    class="flex grow h-full pointer-events-none" :class="{
+    class="flex grow h-full" :class="{
     'flex-row': clickPosition === 'stash',
     'flex-row-reverse': clickPosition === 'inventory'
   }">
-    <div v-if="!isBrowserShown" class="layout-column shrink-0"
+    <div v-if="!isBrowserShown" class="layout-column shrink-0 pointer-events-none"
       style="width: var(--game-panel);">
     </div>
     <div id="price-window" class="layout-column shrink-0 text-gray-200 pointer-events-auto" style="width: 28.75rem;">
@@ -30,7 +30,7 @@
       <div class="grow layout-column min-h-0 bg-gray-800">
         <background-info />
         <check-position-circle v-if="showCheckPos"
-          :position="checkPosition" style="z-index: -1;" />
+          :position="checkPosition" :origin="trackAnchor" style="z-index: -1;" />
         <template v-if="item?.isErr()">
           <ui-error-box class="m-4">
             <template #name>{{ t(item.error.name) }}</template>
@@ -53,7 +53,7 @@
     <webview v-if="isBrowserShown" ref="iframeEl"
       class="pointer-events-auto flex-1"
       width="100%" height="100%" />
-    <div v-else class="layout-column flex-1 min-w-0">
+    <div v-else class="layout-column flex-1 min-w-0 pointer-events-none">
       <div class="flex" :class="{
         'flex-row': clickPosition === 'stash',
         'flex-row-reverse': clickPosition === 'inventory'
@@ -88,6 +88,18 @@ import ItemQuickPrice from '@/web/ui/ItemQuickPrice.vue'
 import { PriceCheckWidget, WidgetManager, WidgetSpec } from '../overlay/interfaces'
 
 type ParseError = { name: string; message: string; rawText: ParsedItem['rawText'] }
+type Bounds = { x: number, y: number, width: number, height: number }
+
+function containsPoint (bounds: Bounds, point: { x: number, y: number }) {
+  return (
+    bounds.width > 0 &&
+    bounds.height > 0 &&
+    point.x >= bounds.x &&
+    point.x <= bounds.x + bounds.width &&
+    point.y >= bounds.y &&
+    point.y <= bounds.y + bounds.height
+  )
+}
 
 export default defineComponent({
   widget: {
@@ -139,6 +151,7 @@ export default defineComponent({
   },
   setup (props) {
     const wm = inject<WidgetManager>('wm')!
+    const isStandalone = inject('standaloneMode', false)
     const { xchgRate, initialLoading: xchgRateLoading, queuePricesFetch } = usePoeninja()
 
     nextTick(() => {
@@ -149,34 +162,79 @@ export default defineComponent({
     const item = shallowRef<null | Result<ParsedItem, ParseError>>(null)
     const advancedCheck = shallowRef(false)
     const checkPosition = shallowRef({ x: 1, y: 1 })
+    const checkSide = shallowRef<'stash' | 'inventory'>('stash')
+    const trackAnchor = shallowRef({ x: window.screenX, y: window.screenY })
+    const isLinux = navigator.userAgent.includes('Linux')
 
     MainProcess.onEvent('MAIN->CLIENT::item-text', (e) => {
       if (e.target !== 'price-check') return
 
+      let trackAreaPayload: null | {
+        holdKey: string
+        closeThreshold: number
+        from: typeof e.position
+        area: Bounds
+        dpr: number
+      } = null
+
       if (Host.isElectron && !e.focusOverlay) {
-        // everything in CSS pixels
-        const width = 28.75 * AppConfig().fontSize
-        const screenX = ((e.position.x - window.screenX) > window.innerWidth / 2)
-          ? (window.screenX + window.innerWidth) - wm.poePanelWidth.value - width
-          : window.screenX + wm.poePanelWidth.value
-        MainProcess.sendEvent({
-          name: 'OVERLAY->MAIN::track-area',
-          payload: {
-            holdKey: props.config.hotkeyHold,
-            closeThreshold: 2.5 * AppConfig().fontSize,
-            from: e.position,
-            area: {
-              x: screenX,
+        const dpr = window.devicePixelRatio || 1
+        const windowBounds = isLinux
+          ? {
+              x: Math.round(window.screenX * dpr),
+              y: Math.round(window.screenY * dpr),
+              width: Math.round(window.innerWidth * dpr),
+              height: Math.round(window.innerHeight * dpr)
+            }
+          : {
+              x: window.screenX,
               y: window.screenY,
-              width,
+              width: window.innerWidth,
               height: window.innerHeight
-            },
-            dpr: window.devicePixelRatio
-          }
-        })
+            }
+
+        // Linux can occasionally deliver a stale gameBounds snapshot during a
+        // price-check start. Prefer native bounds when they actually contain
+        // the click point; otherwise fall back to the overlay window bounds.
+        const anchor = (isLinux && e.gameBounds && containsPoint(e.gameBounds, e.position))
+          ? e.gameBounds
+          : windowBounds
+
+        // Scale to physical pixels on Linux for uiohook coordinate space
+        const scale = isLinux ? dpr : 1
+        const width = Math.round(28.75 * AppConfig().fontSize * scale)
+        const panelWidth = Math.round(wm.poePanelWidth.value * scale)
+        const middleX = anchor.x + anchor.width / 2
+        const side = e.position.x > middleX ? 'inventory' : 'stash'
+        const screenX = side === 'inventory'
+          ? anchor.x + anchor.width - panelWidth - width
+          : anchor.x + panelWidth
+
+        trackAnchor.value = anchor
+        checkSide.value = side
+        trackAreaPayload = {
+          holdKey: props.config.hotkeyHold,
+          closeThreshold: Math.round(2.5 * AppConfig().fontSize * scale),
+          from: e.position,
+          area: {
+            x: screenX,
+            y: anchor.y,
+            width,
+            height: anchor.height
+          },
+          dpr
+        }
       }
       closeBrowser()
       wm.show(props.config.wmId)
+      if (trackAreaPayload && !isStandalone) {
+        nextTick(() => {
+          MainProcess.sendEvent({
+            name: 'OVERLAY->MAIN::track-area',
+            payload: trackAreaPayload
+          })
+        })
+      }
       checkPosition.value = e.position
       advancedCheck.value = e.focusOverlay
 
@@ -191,7 +249,7 @@ export default defineComponent({
           rawText: e.clipboard
         }))
 
-      if (item.value.isOk()) {
+      if (item.value?.isOk()) {
         queuePricesFetch()
       }
     })
@@ -221,10 +279,7 @@ export default defineComponent({
       if (isBrowserShown.value) {
         return 'inventory'
       } else {
-        return checkPosition.value.x > (window.screenX + window.innerWidth / 2)
-          ? 'inventory'
-          : 'stash'
-          // or {chat, vendor, center of screen}
+        return checkSide.value
       }
     })
 
@@ -279,6 +334,7 @@ export default defineComponent({
       stableOrbCost,
       xchgRateLoading,
       showCheckPos,
+      trackAnchor,
       checkPosition,
       item,
       advancedCheck,

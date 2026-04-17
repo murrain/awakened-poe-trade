@@ -357,8 +357,8 @@ function parseNamePlate (section: string[]) {
   const item: ParserState = {
     rarity: undefined,
     category: undefined,
-    name: name,
-    baseType: baseType,
+    name,
+    baseType,
     isUnidentified: false,
     isCorrupted: false,
     newMods: [],

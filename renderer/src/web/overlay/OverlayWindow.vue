@@ -95,9 +95,11 @@ export default defineComponent({
       gameFocused.value = state.game
 
       if (active.value === false) {
-        for (const w of widgets.value) {
-          if (w.wmFlags.includes('hide-on-blur')) {
-            hide(w.wmId)
+        if (!state.preserveWidgets) {
+          for (const w of widgets.value) {
+            if (w.wmFlags.includes('hide-on-blur')) {
+              hide(w.wmId)
+            }
           }
         }
       } else {
@@ -279,6 +281,26 @@ export default defineComponent({
         showEditingNotification.value = true
       }
     })
+
+    if (Host.isElectron && navigator.userAgent.includes('Linux')) {
+      document.addEventListener('mousedown', (e) => {
+        const target = e.target as Element | null
+        const inPriceWindow = Boolean(target?.closest('#price-window'))
+        Host.sendEvent({
+          name: 'CLIENT->MAIN::user-action',
+          payload: {
+            action: 'debug-log',
+            text: `overlay mousedown client=${e.clientX},${e.clientY} target=${target?.tagName ?? 'unknown'} priceWindow=${inPriceWindow}`
+          }
+        })
+        if (inPriceWindow) {
+          Host.sendEvent({
+            name: 'CLIENT->MAIN::user-action',
+            payload: { action: 'price-check-clicked' }
+          })
+        }
+      }, true)
+    }
 
     function sliceLastLines (text: string, numLines: number) {
       let lfIndex = text.length - 1
