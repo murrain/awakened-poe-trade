@@ -36,6 +36,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      pull-requests: write
     outputs:
       should_build: ${{ steps.sync.outputs.should_build }}
     steps:
@@ -58,6 +59,8 @@ jobs:
 
       - name: Sync fork master to upstream
         id: sync
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
 
@@ -93,9 +96,41 @@ jobs:
 
             UNRESOLVED=$(git diff --name-only --diff-filter=U)
             if [ -n "$UNRESOLVED" ]; then
+              # A genuine conflict outside the auto-resolvable file lists.
+              # Instead of failing the scheduled job, open (or reuse) a PR that
+              # carries the partially-resolved merge so a human can finish it,
+              # then keep this run green.
               echo "Unresolved upstream sync conflicts remain:"
               echo "$UNRESOLVED"
-              exit 1
+
+              SHORT_SHA=$(git rev-parse --short "$UPSTREAM_SHA")
+              SYNC_BRANCH="automated/upstream-sync-${SHORT_SHA}"
+
+              if git ls-remote --exit-code --heads origin "$SYNC_BRANCH" >/dev/null 2>&1; then
+                echo "Sync branch $SYNC_BRANCH already exists; leaving its PR for manual resolution."
+                git merge --abort || true
+              else
+                # Commit the merge WITH conflict markers still in the tree so the
+                # PR shows exactly what needs resolving. `git add -A` stages the
+                # conflicted files as-is; committing mid-merge records both
+                # parents (master + upstream).
+                git add -A
+                git commit --no-edit -m "Automated upstream sync (needs manual conflict resolution)" \
+                  -m "The scheduled sync could not auto-resolve conflicts in:" \
+                  -m "$UNRESOLVED" \
+                  -m "Resolve the remaining <<<<<<< conflict markers on this branch, then merge to master."
+                git push origin "HEAD:${SYNC_BRANCH}"
+
+                gh pr create \
+                  --base master \
+                  --head "$SYNC_BRANCH" \
+                  --title "Upstream sync needs manual conflict resolution (${SHORT_SHA})" \
+                  --body "$(printf 'The scheduled **sync-master** job hit conflicts it could not auto-resolve while merging `%s@%s` into `master`.\n\n**Conflicted files:**\n```\n%s\n```\n\nThis branch contains the merge with those conflicts left as `<<<<<<<` markers (everything else, including the owned-file and upstream-wins resolutions, is already applied). Resolve the markers on this branch and merge to `master`.' "$UPSTREAM_REPO" "$SHORT_SHA" "$UNRESOLVED")" \
+                  || echo "PR creation skipped (it may already exist)."
+              fi
+
+              echo "should_build=false" >> "$GITHUB_OUTPUT"
+              exit 0
             fi
 
             # If every change came from fork-owned or upstream-wins resolution
