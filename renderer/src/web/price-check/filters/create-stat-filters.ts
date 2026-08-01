@@ -204,16 +204,16 @@ export function calculatedStatToFilter (
       tag: (type === ModifierType.Enchant)
         ? FilterTag.Enchant
         : FilterTag.Variant,
+<<<<<<< HEAD
       oils: decodeOils(calc),
       sources,
+=======
+      sources: sources,
+>>>>>>> c7144d366084ac2e98c8e9e23fb8108a02924afe
       option: {
         value: sources[0].contributes!.value
       },
       disabled: false
-    }
-
-    if (filter.oils) {
-      filter.disabled = true
     }
   }
 
@@ -232,6 +232,13 @@ export function calculatedStatToFilter (
     sources,
     roll: undefined,
     disabled: true
+  }
+
+  if (calc.stat.better === StatBetter.NotComparable) {
+    if (type !== ModifierType.Enchant) {
+      filter.tag = FilterTag.Variant
+    }
+    filter.disabled = false
   }
 
   if (type === ModifierType.Implicit) {
@@ -269,6 +276,10 @@ export function calculatedStatToFilter (
       // filter.tag = FilterTag.Unveiled
     } else if (sources.some(s => CLIENT_STRINGS.INCURSION_MODS.includes(s.modifier.info.name!))) {
       filter.tag = FilterTag.Incursion
+    } else if (sources.some(s => CLIENT_STRINGS.ESSENCE_MODS.includes(s.modifier.info.name!))) {
+      filter.tag = FilterTag.Essence
+    } else if (sources.some(s => CLIENT_STRINGS.INFAMOUS_MODS.includes(s.modifier.info.name!))) {
+      filter.tag = FilterTag.Infamous
     }
   }
 
