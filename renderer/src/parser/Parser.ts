@@ -4,6 +4,7 @@ import {
   ITEM_BY_TRANSLATED,
   ITEM_BY_REF,
   STAT_BY_MATCH_STR,
+  StatBetter,
   BaseType
 } from '@/assets/data'
 import { ModifierType, sumStatsByModType } from './modifiers'
@@ -32,6 +33,7 @@ const parsers: Array<ParserFn | { virtual: VirtualParserFn }> = [
   parseUnidentified,
   { virtual: parseSuperior },
   { virtual: parseFoulborn },
+  { virtual: parseVestigial },
   parseSynthesised,
   parseCategoryByHelpText,
   { virtual: parseMapTier },
@@ -696,14 +698,13 @@ function parseLogbookArea (section: string[], item: ParsedItem) {
   const { modType, lines } = parseModType(section.slice(2))
   for (const line of lines) {
     const found = STAT_BY_MATCH_STR(line)
-    if (found && found.stat.ref === 'Area contains an Expedition Boss (#)') {
-      const roll = found.matcher.value!
+    // Area contains an Expedition Boss (#)
+    if (found && found.stat.better === StatBetter.NotComparable) {
       areaMods.push({
         info: { tags: [], type: modType },
         stats: [{
           stat: found.stat,
-          translation: found.matcher,
-          roll: { value: roll, min: roll, max: roll, dp: false, unscalable: true }
+          translation: found.matcher
         }]
       })
     }
@@ -857,6 +858,15 @@ function parseFoulborn (item: ParserState) {
   if (_$.FOULBORN_NAME.test(item.name)) {
     item.name = _$.FOULBORN_NAME.exec(item.name)![1]
     item.isFoulborn = true
+  }
+}
+
+function parseVestigial (item: ParserState) {
+  if (item.rarity !== ItemRarity.Unique || !item.baseType) return
+
+  if (_$.VESTIGIAL_NAME.test(item.baseType)) {
+    item.baseType = _$.VESTIGIAL_NAME.exec(item.baseType)![1]
+    item.isVestigial = true
   }
 }
 
