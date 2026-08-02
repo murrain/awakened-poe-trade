@@ -204,16 +204,16 @@ export function calculatedStatToFilter (
       tag: (type === ModifierType.Enchant)
         ? FilterTag.Enchant
         : FilterTag.Variant,
+<<<<<<< HEAD
       oils: decodeOils(calc),
       sources,
+=======
+      sources: sources,
+>>>>>>> 31b3e0e8ba0a6bac2266603c2e170925c8f02b81
       option: {
         value: sources[0].contributes!.value
       },
       disabled: false
-    }
-
-    if (filter.oils) {
-      filter.disabled = true
     }
   }
 
@@ -234,11 +234,22 @@ export function calculatedStatToFilter (
     disabled: true
   }
 
+  if (calc.stat.better === StatBetter.NotComparable) {
+    if (type !== ModifierType.Enchant) {
+      filter.tag = FilterTag.Variant
+    }
+    if (!filter.oils) {
+      filter.disabled = false
+    }
+  }
+
   if (type === ModifierType.Implicit) {
     if (sources.some(s => s.modifier.info.generation === 'corrupted')) {
       filter.tag = FilterTag.Corrupted
     } else if (sources.some(s => s.modifier.info.generation === 'eldritch')) {
       filter.tag = FilterTag.Eldritch
+    } else if (sources.some(s => s.modifier.info.generation === 'vestigial')) {
+      filter.tag = FilterTag.Vestigial
     } else if (item.isSynthesised) {
       filter.tag = FilterTag.Synthesised
     }
@@ -269,6 +280,10 @@ export function calculatedStatToFilter (
       // filter.tag = FilterTag.Unveiled
     } else if (sources.some(s => CLIENT_STRINGS.INCURSION_MODS.includes(s.modifier.info.name!))) {
       filter.tag = FilterTag.Incursion
+    } else if (sources.some(s => CLIENT_STRINGS.ESSENCE_MODS.includes(s.modifier.info.name!))) {
+      filter.tag = FilterTag.Essence
+    } else if (sources.some(s => CLIENT_STRINGS.INFAMOUS_MODS.includes(s.modifier.info.name!))) {
+      filter.tag = FilterTag.Infamous
     }
   }
 
@@ -456,7 +471,11 @@ function finalFilterTweaks (ctx: FiltersCreationContext) {
         // hide only if fractured mod has corresponding explicit variant
         filter.hidden = 'filters.hide_for_crafting'
       }
-    } else if (filter.tag === FilterTag.Foulborn || filter.tag === FilterTag.Variant) {
+    } else if (
+      filter.tag === FilterTag.Foulborn ||
+      filter.tag === FilterTag.Vestigial ||
+      filter.tag === FilterTag.Variant
+    ) {
       filter.disabled = false
     }
   }
