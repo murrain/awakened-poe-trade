@@ -81,6 +81,7 @@
   <ui-error-box v-else>
     <template #name>{{ t(':error') }}</template>
     <p>Error: {{ error }}</p>
+    <p>{{ t('app.leagues_failed_help') }}</p>
     <template #actions>
       <button class="btn" @click="execSearch">{{ t('Retry') }}</button>
       <button class="btn" @click="openTradeLink">{{ t('Browser') }}</button>
@@ -111,6 +112,7 @@ const MIN_GROUPED = 10
 
 function useTradeApi () {
   let searchId = 0
+  let collapseMerchant = false
   const error = shallowRef<string | null>(null)
   const searchResult = shallowRef<SearchResult | null>(null)
   const fetchResults = shallowRef<PricingResult[]>([])
@@ -119,7 +121,7 @@ function useTradeApi () {
     const out: Array<PricingResult & { listedTimes: number }> = []
     for (const result of fetchResults.value) {
       if (result == null) break
-      if (out.length === 0 || result.hasFee) {
+      if (out.length === 0 || (result.hasFee && !collapseMerchant)) {
         out.push({ listedTimes: 1, ...result })
         continue
       }
@@ -162,6 +164,7 @@ function useTradeApi () {
         return
       }
       searchResult.value = _searchResult
+      collapseMerchant = filters.trade.collapseMerchant
 
       // first two req are parallel, then sequential on demand
       {
@@ -205,6 +208,7 @@ function useTradeApi () {
 
 export default defineComponent({
   components: { OnlineFilter, TradeLinks, UiErrorBox },
+  emits: ['reset'],
   props: {
     filters: {
       type: Object as PropType<ItemFilters>,
@@ -219,7 +223,7 @@ export default defineComponent({
       required: true
     }
   },
-  setup (props) {
+  setup (props, ctx) {
     const widget = computed(() => AppConfig<PriceCheckWidget>('price-check')!)
 
     watch(() => props.item, (item) => {
@@ -259,6 +263,7 @@ export default defineComponent({
       makeTradeLink,
       openTradeLink () {
         showBrowser(makeTradeLink())
+        ctx.emit('reset')
       }
     }
   }

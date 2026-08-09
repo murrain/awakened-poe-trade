@@ -11,8 +11,8 @@
   "app": {
     "leagues_loading": "Loading leagues\u2026",
     "leagues_failed": "Failed to load leagues",
-    "leagues_failed_help": "Make sure the realm is not under maintenance. Also try clicking on the \"Browser\" button, you may need to complete a CAPTCHA there.",
-    "leagues_failed_help_alt": "Price check an Item, and follow the instructions in the error description there.",
+    "leagues_failed_help": "Make sure the realm is not under maintenance. Also try clicking on the Browser button, you may need to complete a CAPTCHA there.",
+    "leagues_failed_help_alt": "Price check any item, and follow the instructions in the error description there.",
     "thanks_3rd_party": "This tool relies on {0} and {1}, consider supporting them as well",
     "toggle_browser_hint": "Press {0} to switch between browser and game.",
     "contact_me": "Contact me on one of the PoE Discords,",
@@ -109,7 +109,8 @@
     "not_mirrored": "Not Mirrored",
     "split": "Split",
     "not_split": "Not Split",
-    "map_foil_reward": "Foil {0}"
+    "map_foil_reward": "Foil {0}",
+    "chart_sulphur": "Dead Man's Sulphur: {0}%"
   },
   "item_category": {
     "prop": "Category: {0}",
@@ -153,7 +154,8 @@
     "tincture": "Tincture",
     "azmeri_charm": "Charm",
     "idol": "Idol",
-    "graft": "Graft"
+    "graft": "Graft",
+    "chart": "Chart"
   },
   "filters": {
     "selected_some": "{0} of {1}, stats",
@@ -165,6 +167,7 @@
     "tier": "Tier {0}",
     "preset_pseudo": "Pseudo",
     "preset_base_item": "Base item",
+    "preset_bulk": "Bulk",
     "hide_const_roll": "Roll is not variable",
     "hide_ele_dps": "Elemental damage is not the main source of DPS",
     "hide_phys_dps": "Physical damage is not the main source of DPS",
@@ -183,6 +186,7 @@
     "tag_corrupted": "corrupted",
     "tag_synthesised": "synthesised",
     "tag_foulborn": "foulborn",
+    "tag_vestigial": "vestigial",
     "tag_eldritch": "eldritch",
     "tag_pseudo": "pseudo",
     "tag_not": "not",
@@ -195,7 +199,9 @@
     "tag_explicit_warlord": "Warlord",
     "tag_explicit_delve": "Delve",
     "tag_explicit_veiled": "Veiled",
-    "tag_explicit_incursion": "Incursion"
+    "tag_explicit_incursion": "Incursion",
+    "tag_explicit_infamous": "Mercenary",
+    "tag_explicit_essence": "Essence"
   },
   "online_filter": {
     "offline_toggle": "Offline & Online",

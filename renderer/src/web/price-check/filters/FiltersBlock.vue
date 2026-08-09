@@ -1,12 +1,16 @@
 <template>
   <div>
     <div class="flex flex-wrap items-center pb-3 gap-2">
+      <filter-btn-logical v-if="searchSub"
+        :filter="searchSub" :text="searchSub.name ?? searchSub.baseType!" />
       <filter-btn-numeric v-if="filters.linkedSockets"
         :filter="filters.linkedSockets" :name="t('item.linked_sockets')" />
       <filter-btn-numeric v-if="filters.mapTier"
         :filter="filters.mapTier" :name="t('item.map_tier')" />
       <filter-btn-logical v-if="filters.mapCompletionReward" readonly
         :filter="{ disabled: false }" :text="t('item.map_foil_reward', [filters.mapCompletionReward.name])" />
+      <filter-btn-logical v-if="filters.scryingMapArea" readonly
+        :filter="{ disabled: false }" :text="filters.scryingMapArea" />
       <filter-btn-numeric v-if="filters.areaLevel"
         :filter="filters.areaLevel" :name="t('item.area_level')" />
       <filter-btn-numeric v-if="filters.heistWingsRevealed"
@@ -15,8 +19,6 @@
         :filter="filters.sentinelCharge" :name="t('item.sentinel_charge')" />
       <filter-btn-logical v-if="filters.mapBlighted" readonly
         :filter="{ disabled: false }" :text="filters.mapBlighted.value" />
-      <filter-btn-logical v-if="filters.discriminator?.value" readonly
-        :filter="{ disabled: false }" :text="filters.discriminator.value" />
       <filter-btn-numeric v-if="filters.itemLevel"
         :filter="filters.itemLevel" :name="t('item.item_level')" />
       <filter-btn-numeric v-if="filters.stackSize"
@@ -160,6 +162,13 @@ export default defineComponent({
         } else {
           return props.stats.filter(s => !s.hidden)
         }
+      }),
+      searchSub: computed(() => {
+        const { filters } = props
+        const activeSearch = (filters.searchRelaxed && !filters.searchRelaxed.disabled)
+          ? filters.searchRelaxed
+          : filters.searchExact
+        return activeSearch.sub
       }),
       showUnknownMods,
       hasStats: computed(() =>
