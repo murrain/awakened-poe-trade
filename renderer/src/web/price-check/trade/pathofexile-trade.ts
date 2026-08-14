@@ -1,5 +1,5 @@
 import { ItemInfluence, ItemCategory } from '@/parser'
-import { ItemFilters, StatFilter, INTERNAL_TRADE_IDS, InternalTradeId } from '../filters/interfaces'
+import { ItemFilters, StatFilter, FilterOrGroup, INTERNAL_TRADE_IDS, InternalTradeId, FilterTag } from '../filters/interfaces'
 import { setProperty as propSet } from 'dot-prop'
 import { DateTime } from 'luxon'
 import { Host } from '@/web/background/IPC'
@@ -50,7 +50,8 @@ export const CATEGORY_TO_TRADE_ID = new Map([
   [ItemCategory.Tincture, 'tincture'],
   [ItemCategory.Charm, 'azmeri.charm'],
   [ItemCategory.Idol, 'idol'],
-  [ItemCategory.Graft, 'graft']
+  [ItemCategory.Graft, 'graft'],
+  [ItemCategory.Chart, 'chart']
 ])
 
 const TOTAL_MODS_TEXT = {
@@ -89,7 +90,7 @@ interface TradeRequest {
     name?: string | { discriminator: string, option: string }
     type?: string | { discriminator: string, option: string }
     stats: Array<{
-      type: 'and' | 'if' | 'count' | 'not'
+      type: 'and' | 'if' | 'count' | 'not' | 'mercenary'
       value?: FilterRange
       filters: Array<{
         id: string
@@ -135,6 +136,7 @@ interface TradeRequest {
           stack_size?: FilterRange
           memory_level?: FilterRange
           foulborn_item?: FilterBoolean
+          vestigial?: FilterBoolean
         }
       }
       armour_filters?: {
@@ -166,6 +168,7 @@ interface TradeRequest {
           map_uberblighted?: FilterBoolean
           area_level?: FilterRange
           map_completion_reward?: { option?: 'any' | string }
+          chart_sulphur?: FilterRange
         }
       }
       heist_filters?: {
@@ -201,6 +204,8 @@ interface TradeRequest {
     price: 'asc'
   }
 }
+
+type TradeStatGroup = TradeRequest['query']['stats'][number]
 
 export interface SearchResult {
   id: string
@@ -255,7 +260,7 @@ export interface PricingResult {
   ign: string
 }
 
-export function createTradeRequest (filters: ItemFilters, stats: StatFilter[]) {
+export function createTradeRequest (filters: ItemFilters, stats: FilterOrGroup[]) {
   const body: TradeRequest = {
     query: {
       status: {
@@ -278,7 +283,10 @@ export function createTradeRequest (filters: ItemFilters, stats: StatFilter[]) {
     propSet(query.filters, 'trade_filters.filters.price.option', filters.trade.currency)
   }
 
-  if (filters.trade.collapseListings === 'api' && (filters.trade.offline || !filters.trade.merchantOnly)) {
+  if (
+    filters.trade.collapseListings === 'api' &&
+    (filters.trade.offline || !filters.trade.merchantOnly || filters.trade.collapseMerchant)
+  ) {
     propSet(query.filters, 'trade_filters.filters.collapse.option', String(true))
   }
 
@@ -286,20 +294,23 @@ export function createTradeRequest (filters: ItemFilters, stats: StatFilter[]) {
     propSet(query.filters, 'trade_filters.filters.indexed.option', filters.trade.listed)
   }
 
-  const activeSearch = (filters.searchRelaxed && !filters.searchRelaxed.disabled)
+  let activeSearch = (filters.searchRelaxed && !filters.searchRelaxed.disabled)
     ? filters.searchRelaxed
     : filters.searchExact
+  if (activeSearch.sub && !activeSearch.sub.disabled) {
+    activeSearch = activeSearch.sub
+  }
 
   if (activeSearch.nameTrade) {
-    query.name = nameToQuery(activeSearch.nameTrade, filters)
+    query.name = nameToQuery(activeSearch.nameTrade, activeSearch.discriminatorTrade)
   } else if (activeSearch.name) {
-    query.name = nameToQuery(activeSearch.name, filters)
+    query.name = nameToQuery(activeSearch.name, activeSearch.discriminatorTrade)
   }
 
   if (activeSearch.baseTypeTrade) {
-    query.type = nameToQuery(activeSearch.baseTypeTrade, filters)
+    query.type = nameToQuery(activeSearch.baseTypeTrade, activeSearch.discriminatorTrade)
   } else if (activeSearch.baseType) {
-    query.type = nameToQuery(activeSearch.baseType, filters)
+    query.type = nameToQuery(activeSearch.baseType, activeSearch.discriminatorTrade)
   }
 
   if (filters.foil && !filters.foil.disabled) {
@@ -331,6 +342,9 @@ export function createTradeRequest (filters: ItemFilters, stats: StatFilter[]) {
   }
   if (filters.foulborn?.value === false) {
     propSet(query.filters, 'misc_filters.filters.foulborn_item.option', String(false))
+  }
+  if (filters.vestigial?.value === false) {
+    propSet(query.filters, 'misc_filters.filters.vestigial.option', String(false))
   }
   if (filters.mirrored?.disabled) {
     propSet(query.filters, 'misc_filters.filters.mirrored.option', String(false))
@@ -400,7 +414,7 @@ export function createTradeRequest (filters: ItemFilters, stats: StatFilter[]) {
   }
 
   for (const stat of stats) {
-    if (!stat.tradeId[0].startsWith('item.')) continue
+    if (stat.group || !stat.tradeId[0].startsWith('item.')) continue
 
     if (stat.tradeId[0] === 'item.has_empty_modifier') {
       const TARGET_ID = {
@@ -533,11 +547,23 @@ export function createTradeRequest (filters: ItemFilters, stats: StatFilter[]) {
       case 'item.heist_target_priceless':
         propSet(query.filters, 'heist_filters.filters.heist_objective_value.option', 'priceless')
         break
+      case 'item.chart_sulphur':
+        propSet(query.filters, 'map_filters.filters.chart_sulphur.min', typeof input.min === 'number' ? input.min : undefined)
+        propSet(query.filters, 'map_filters.filters.chart_sulphur.max', typeof input.max === 'number' ? input.max : undefined)
+        break
     }
   }
 
-  type BareStatFilter = Omit<StatFilter, 'statRef' | 'text' | 'tag' | 'sources'>
-  const realStats: BareStatFilter[] = stats.filter(stat =>
+  stats = stats.map(stat => {
+    if (!stat.group && stat.tag === FilterTag.MercenaryPrimary) {
+      return { ...stat, disabled: false }
+    }
+    return stat
+  })
+
+  type NoUiStatFilter = Pick<StatFilter, 'not' | keyof BareStatFilter>
+  const realStats: NoUiStatFilter[] = stats.filter((stat): stat is StatFilter =>
+    !stat.group &&
     !INTERNAL_TRADE_IDS.includes(stat.tradeId[0]))
   if (filters.veiled) {
     for (const statRef of filters.veiled.statRefs) {
@@ -562,27 +588,42 @@ export function createTradeRequest (filters: ItemFilters, stats: StatFilter[]) {
   }
 
   const qAnd = query.stats[0]
-  const qNot: TradeRequest['query']['stats'][number] = {
+  const qNot: TradeStatGroup = {
     type: 'not',
     filters: []
   }
 
+  for (const group of stats) {
+    if (group.group === 'not') {
+      query.stats.push({
+        type: 'not',
+        disabled: group.meta.disabled,
+        filters: group.stats.flatMap(stat => everyTradeIdToQuery(stat))
+      })
+    } else if (group.group === 'mercenary') {
+      const { meta: skill, stats: supports } = group
+
+      if (skill.tag === FilterTag.MercenaryPrimary) {
+        appendAndFilter({ ...skill, disabled: false }, qAnd, query.stats)
+      }
+
+      query.stats.push({
+        type: 'mercenary',
+        value: { min: 1 + supports.filter(stat => !stat.disabled).length },
+        disabled: skill.disabled,
+        filters: [
+          ...everyTradeIdToQuery(skill),
+          ...supports.flatMap(stat => everyTradeIdToQuery(stat))
+        ]
+      })
+    }
+  }
+
   for (const stat of realStats) {
     if (stat.not) {
-      for (const id of stat.tradeId) {
-        qNot.filters.push(tradeIdToQuery(id, stat))
-      }
+      qNot.filters.push(...everyTradeIdToQuery(stat))
     } else {
-      if (stat.tradeId.length === 1) {
-        qAnd.filters.push(tradeIdToQuery(stat.tradeId[0], stat))
-      } else {
-        query.stats.push({
-          type: 'count',
-          value: { min: 1 },
-          disabled: stat.disabled,
-          filters: stat.tradeId.map(id => tradeIdToQuery(id, stat))
-        })
-      }
+      appendAndFilter(stat, qAnd, query.stats)
     }
   }
 
@@ -689,7 +730,30 @@ function getMinMax (roll: StatFilter['roll'], divisor: number) {
   return !roll.tradeInvert ? { min: a, max: b } : { min: b, max: a }
 }
 
-function tradeIdToQuery (id: string, stat: Pick<StatFilter, 'roll' | 'option' | 'disabled'>) {
+type BareStatFilter = Pick<StatFilter, 'roll' | 'option' | 'disabled' | 'tradeId'>
+
+function appendAndFilter (
+  stat: BareStatFilter,
+  defaultAndGroup: TradeStatGroup,
+  allGroups: TradeStatGroup[]
+): void {
+  if (stat.tradeId.length === 1) {
+    defaultAndGroup.filters.push(tradeIdToQuery(stat.tradeId[0], stat))
+  } else {
+    allGroups.push({
+      type: 'count',
+      value: { min: 1 },
+      disabled: stat.disabled,
+      filters: everyTradeIdToQuery(stat)
+    })
+  }
+}
+
+function everyTradeIdToQuery (stat: BareStatFilter) {
+  return stat.tradeId.map(id => tradeIdToQuery(id, stat))
+}
+
+function tradeIdToQuery (id: string, stat: BareStatFilter) {
   let roll = stat.roll
 
   const divMinMax = id.startsWith('{div_by_100}') ? 100 : 1
@@ -714,12 +778,12 @@ function tradeIdToQuery (id: string, stat: Pick<StatFilter, 'roll' | 'option' | 
   }
 }
 
-function nameToQuery (name: string, filters: ItemFilters) {
-  if (!filters.discriminator) {
+function nameToQuery (name: string, discriminator?: string) {
+  if (!discriminator) {
     return name
   } else {
     return {
-      discriminator: filters.discriminator.trade,
+      discriminator: discriminator,
       option: name
     }
   }

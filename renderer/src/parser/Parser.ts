@@ -4,10 +4,12 @@ import {
   ITEM_BY_TRANSLATED,
   ITEM_BY_REF,
   STAT_BY_MATCH_STR,
+  MERCENARY_BUILDS,
+  StatBetter,
   BaseType
 } from '@/assets/data'
 import { ModifierType, sumStatsByModType } from './modifiers'
-import { linesToStatStrings, tryParseTranslation, getRollOrMinmaxAvg } from './stat-translations'
+import { linesToStatStrings, tryParseTranslation, getRollOrMinmaxAvg, ParsedStat } from './stat-translations'
 import { ItemCategory, ACCESSORY } from './meta'
 import { IncursionRoom, ParsedItem, ItemInfluence, ItemRarity } from './ParsedItem'
 import { magicBasetype } from './magic-name'
@@ -32,6 +34,7 @@ const parsers: Array<ParserFn | { virtual: VirtualParserFn }> = [
   parseUnidentified,
   { virtual: parseSuperior },
   { virtual: parseFoulborn },
+  { virtual: parseVestigial },
   parseSynthesised,
   parseCategoryByHelpText,
   { virtual: parseMapTier },
@@ -56,6 +59,7 @@ const parsers: Array<ParserFn | { virtual: VirtualParserFn }> = [
   parseSockets,
   parseHeistContract,
   parseHeistBlueprint,
+  parseChart,
   parseAreaLevel,
   parseAtzoatlRooms,
   parseMirroredTablet,
@@ -63,9 +67,16 @@ const parsers: Array<ParserFn | { virtual: VirtualParserFn }> = [
   parseMirrored,
   parseSplit,
   parseSentinelCharge,
+  parseScryingOrb,
   parseLogbookArea,
   parseLogbookArea,
   parseLogbookArea,
+  parseMercenaryGems,
+  parseMercenaryGems,
+  parseMercenaryGems,
+  parseMercenaryGems,
+  parseMercenaryGems,
+  parseMercenaryGems,
   parseModifiers, // enchant
   parseModifiers, // scourge
   parseModifiers, // implicit
@@ -73,6 +84,7 @@ const parsers: Array<ParserFn | { virtual: VirtualParserFn }> = [
   { virtual: transformToLegacyModifiers },
   { virtual: parseFractured },
   { virtual: parseBlightedMap },
+  { virtual: parseMercenaryBuild },
   { virtual: pickCorrectVariant },
   { virtual: calcBasePercentile }
 ]
@@ -223,9 +235,7 @@ function parseMapTier (item: ParserState) {
   const execResult = _$.MAP_TIER.exec(item.baseType || item.name)
   if (!execResult) return
 
-  item.map = {
-    tier: Number(execResult[1])
-  }
+  item.mapTier = Number(execResult[1])
 
   if (item.baseType) {
     item.baseType = item.baseType.replace(execResult[0], '')
@@ -234,39 +244,45 @@ function parseMapTier (item: ParserState) {
   }
 }
 
+function parseAreaPropNested (line: string, item: ParsedItem): boolean {
+  if (line.startsWith(_$.MAP_ITEM_QUANTITY)) {
+    item.areaItemQuantity = parseInt(line.slice(_$.MAP_ITEM_QUANTITY.length), 10)
+    return true
+  } else if (line.startsWith(_$.MAP_ITEM_RARITY)) {
+    item.areaItemRarity = parseInt(line.slice(_$.MAP_ITEM_RARITY.length), 10)
+    return true
+  } else if (line.startsWith(_$.MAP_MONSTER_PACK_SIZE)) {
+    item.areaPackSize = parseInt(line.slice(_$.MAP_MONSTER_PACK_SIZE.length), 10)
+    return true
+  }
+  return false
+}
+
 function parseMap (section: string[], item: ParsedItem) {
   if (item.category !== ItemCategory.Map) return 'PARSER_SKIPPED'
-
-  if (!item.map) {
-    item.map = { tier: undefined }
-  }
 
   let isParsed: SectionParseResult = 'SECTION_SKIPPED'
 
   for (const line of section) {
-    if (line.startsWith(_$.MAP_ITEM_QUANTITY)) {
-      item.map.itemQuantity = parseInt(line.slice(_$.MAP_ITEM_QUANTITY.length), 10)
-      isParsed = 'SECTION_PARSED'
-    } else if (line.startsWith(_$.MAP_ITEM_RARITY)) {
-      item.map.itemRarity = parseInt(line.slice(_$.MAP_ITEM_RARITY.length), 10)
-      isParsed = 'SECTION_PARSED'
-    } else if (line.startsWith(_$.MAP_MONSTER_PACK_SIZE)) {
-      item.map.packSize = parseInt(line.slice(_$.MAP_MONSTER_PACK_SIZE.length), 10)
+    if (parseAreaPropNested(line, item)) {
       isParsed = 'SECTION_PARSED'
     } else if (line.startsWith(_$.MAP_MORE_MAPS)) {
-      item.map.moreMaps = parseInt(line.slice(_$.MAP_MORE_MAPS.length), 10)
+      item.mapMoreMaps = parseInt(line.slice(_$.MAP_MORE_MAPS.length), 10)
       isParsed = 'SECTION_PARSED'
     } else if (line.startsWith(_$.MAP_MORE_SCARABS)) {
-      item.map.moreScarabs = parseInt(line.slice(_$.MAP_MORE_SCARABS.length), 10)
+      item.mapMoreScarabs = parseInt(line.slice(_$.MAP_MORE_SCARABS.length), 10)
       isParsed = 'SECTION_PARSED'
     } else if (line.startsWith(_$.MAP_MORE_CURRENCY)) {
-      item.map.moreCurrency = parseInt(line.slice(_$.MAP_MORE_CURRENCY.length), 10)
+      item.mapMoreCurrency = parseInt(line.slice(_$.MAP_MORE_CURRENCY.length), 10)
       isParsed = 'SECTION_PARSED'
     } else if (line.startsWith(_$.MAP_MORE_DIVINATION_CARDS)) {
-      item.map.moreDivCards = parseInt(line.slice(_$.MAP_MORE_DIVINATION_CARDS.length), 10)
+      item.mapMoreDivCards = parseInt(line.slice(_$.MAP_MORE_DIVINATION_CARDS.length), 10)
       isParsed = 'SECTION_PARSED'
     } else if (_$.MAP_COMPLETION_REWARD.test(line)) {
-      item.mapCompletionReward = _$.MAP_COMPLETION_REWARD.exec(line)![1]
+      const rewardName = _$.MAP_COMPLETION_REWARD.exec(line)![1]
+      const rewardInfo = ITEM_BY_TRANSLATED('UNIQUE', rewardName)
+      if (!rewardInfo) throw new Error('Unknown Unique Item.')
+      item.mapCompletionReward = rewardInfo[0]
       isParsed = 'SECTION_PARSED'
     }
   }
@@ -308,10 +324,10 @@ function pickCorrectVariant (item: ParserState) {
     if (cond.propES && !item.armourES) continue
 
     if (cond.mapTier) {
-      if (!item.map?.tier) continue
-      if (cond.mapTier === 'W' && !(item.map.tier <= 5)) continue
-      if (cond.mapTier === 'Y' && !(item.map.tier >= 6 && item.map.tier <= 10)) continue
-      if (cond.mapTier === 'R' && !(item.map.tier >= 11)) continue
+      if (!item.mapTier) continue
+      if (cond.mapTier === 'W' && !(item.mapTier <= 5)) continue
+      if (cond.mapTier === 'Y' && !(item.mapTier >= 6 && item.mapTier <= 10)) continue
+      if (cond.mapTier === 'R' && !(item.mapTier >= 11)) continue
     }
 
     if (cond.hasImplicit && !item.statsByType.some(calc =>
@@ -696,14 +712,13 @@ function parseLogbookArea (section: string[], item: ParsedItem) {
   const { modType, lines } = parseModType(section.slice(2))
   for (const line of lines) {
     const found = STAT_BY_MATCH_STR(line)
-    if (found && found.stat.ref === 'Area contains an Expedition Boss (#)') {
-      const roll = found.matcher.value!
+    // Area contains an Expedition Boss (#)
+    if (found && found.stat.better === StatBetter.NotComparable) {
       areaMods.push({
         info: { tags: [], type: modType },
         stats: [{
           stat: found.stat,
-          translation: found.matcher,
-          roll: { value: roll, min: roll, max: roll, dp: false, unscalable: true }
+          translation: found.matcher
         }]
       })
     }
@@ -716,6 +731,50 @@ function parseLogbookArea (section: string[], item: ParsedItem) {
   }
 
   return 'SECTION_PARSED'
+}
+
+function parseMercenaryGems (section: string[], item: ParsedItem) {
+  if (item.info.refName !== 'Mercenary Warrant') return 'PARSER_SKIPPED'
+
+  const skill = tryParseTranslation({ string: section[0], unscalable: true }, ModifierType.Pseudo, ItemCategory.MercenaryWarrant)
+  if (!skill) return 'SECTION_SKIPPED'
+
+  const group: ParsedStat[] = [skill]
+
+  for (const line of section.slice(1)) {
+    const support = tryParseTranslation({ string: line, unscalable: true }, ModifierType.Pseudo, ItemCategory.MercenaryWarrant)
+    if (support) {
+      group.push(support)
+    } else {
+      item.unknownModifiers.push({
+        text: line,
+        type: ModifierType.Pseudo
+      })
+    }
+  }
+
+  if (!item.mercenarySkills) {
+    item.mercenarySkills = []
+  }
+  item.mercenarySkills.push(group)
+
+  return 'SECTION_PARSED'
+}
+
+function parseMercenaryBuild (item: ParsedItem) {
+  if (item.info.refName !== 'Mercenary Warrant') return
+
+  const build = MERCENARY_BUILDS.find(build => {
+    const primarySkills = build.skills.filter(skill => skill.type === 'primary')
+    return primarySkills.every(skill =>
+      item.mercenarySkills!.some((group, idx) =>
+        group[0].stat.ref === skill.name &&
+        idx < primarySkills.length
+      ))
+  })
+  if (!build) throw new Error('Unknown Mercenary Build.')
+
+  item.mercenaryBuild = build
 }
 
 function parseModifiers (section: string[], item: ParsedItem) {
@@ -822,6 +881,21 @@ function parseSentinelCharge (section: string[], item: ParsedItem) {
   return 'SECTION_SKIPPED'
 }
 
+function parseScryingOrb (section: string[], item: ParsedItem) {
+  if (item.info.refName !== 'Scrying Orb') return 'PARSER_SKIPPED'
+
+  if (section.length === 1) {
+    if (section[0].startsWith(_$.SCRYING_MAP_AREA)) {
+      const areaName = section[0].slice(_$.SCRYING_MAP_AREA.length)
+      const areaInfo = ITEM_BY_TRANSLATED('AREA', areaName)
+      if (!areaInfo) throw new Error('Unknown Area name.')
+      item.mapArea = areaInfo[0]
+      return 'SECTION_PARSED'
+    }
+  }
+  return 'SECTION_SKIPPED'
+}
+
 function parseSynthesised (section: string[], item: ParserState) {
   if (section.length === 1) {
     if (section[0] === _$.SECTION_SYNTHESISED) {
@@ -860,6 +934,15 @@ function parseFoulborn (item: ParserState) {
   }
 }
 
+function parseVestigial (item: ParserState) {
+  if (item.rarity !== ItemRarity.Unique || !item.baseType) return
+
+  if (_$.VESTIGIAL_NAME.test(item.baseType)) {
+    item.baseType = _$.VESTIGIAL_NAME.exec(item.baseType)![1]
+    item.isVestigial = true
+  }
+}
+
 function parseCategoryByHelpText (section: string[], item: ParsedItem) {
   if (section[0] === _$.BEAST_HELP) {
     item.category = ItemCategory.CapturedBeast
@@ -878,8 +961,7 @@ function parseCategoryByHelpText (section: string[], item: ParsedItem) {
 function parseHeistContract (section: string[], item: ParsedItem) {
   if (item.category !== ItemCategory.HeistContract) return 'PARSER_SKIPPED'
 
-  parseAreaLevelNested(section, item)
-  if (!item.areaLevel) {
+  if (!parseAreaLevelNested(section, item)) {
     return 'SECTION_SKIPPED'
   }
 
@@ -927,8 +1009,7 @@ function parseHeistContract (section: string[], item: ParsedItem) {
 function parseHeistBlueprint (section: string[], item: ParsedItem) {
   if (item.category !== ItemCategory.HeistBlueprint) return 'PARSER_SKIPPED'
 
-  parseAreaLevelNested(section, item)
-  if (!item.areaLevel) {
+  if (!parseAreaLevelNested(section, item)) {
     return 'SECTION_SKIPPED'
   }
 
@@ -955,13 +1036,36 @@ function parseHeistBlueprint (section: string[], item: ParsedItem) {
   return 'SECTION_PARSED'
 }
 
-function parseAreaLevelNested (section: string[], item: ParsedItem) {
+function parseChart (section: string[], item: ParsedItem) {
+  if (item.category !== ItemCategory.Chart) return 'PARSER_SKIPPED'
+
+  if (!parseAreaLevelNested(section, item)) {
+    return 'SECTION_SKIPPED'
+  }
+
+  const areaInfo = ITEM_BY_TRANSLATED('AREA', section[0])
+  if (!areaInfo) throw new Error('Unknown Area name.')
+  item.mapArea = areaInfo[0]
+
+  for (const line of section) {
+    if (parseAreaPropNested(line, item)) {
+      // line parsed
+    } else if (line.startsWith(_$.CHART_SULPHUR)) {
+      item.chartSulphur = parseInt(line.slice(_$.CHART_SULPHUR.length), 10)
+    }
+  }
+
+  return 'SECTION_PARSED'
+}
+
+function parseAreaLevelNested (section: string[], item: ParsedItem): boolean {
   for (const line of section) {
     if (line.startsWith(_$.AREA_LEVEL)) {
       item.areaLevel = Number(line.slice(_$.AREA_LEVEL.length))
-      break
+      return true
     }
   }
+  return false
 }
 
 function parseAreaLevel (section: string[], item: ParsedItem) {
@@ -972,11 +1076,11 @@ function parseAreaLevel (section: string[], item: ParsedItem) {
     item.info.refName !== 'Forbidden Tome'
   ) return 'PARSER_SKIPPED'
 
-  parseAreaLevelNested(section, item)
+  if (!parseAreaLevelNested(section, item)) {
+    return 'SECTION_SKIPPED'
+  }
 
-  return (item.areaLevel)
-    ? 'SECTION_PARSED'
-    : 'SECTION_SKIPPED'
+  return 'SECTION_PARSED'
 }
 
 function parseAtzoatlRooms (section: string[], item: ParsedItem) {
