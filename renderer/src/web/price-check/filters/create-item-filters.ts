@@ -3,8 +3,9 @@ import { ParsedItem, ItemCategory, ItemRarity } from '@/parser'
 import { MAGIC_ONLY_OR_UNIQUE_ITEM, CONSUMABLE_CRAFTABLE_ITEM } from '@/parser/meta'
 import { tradeTag } from '../trade/common'
 import { ModifierType } from '@/parser/modifiers'
-import { BaseType, ITEM_BY_REF, ITEM_BY_TRANSLATED } from '@/assets/data'
+import { BaseType, ITEM_BY_REF } from '@/assets/data'
 import { CATEGORY_TO_TRADE_ID } from '../trade/pathofexile-trade'
+import { PERMANENT_SC } from '../../background/Leagues'
 
 export const SPECIAL_SUPPORT_GEM = ['Empower Support', 'Enlighten Support', 'Enhance Support']
 
@@ -33,15 +34,20 @@ export function createFilters (
       listed: undefined,
       currency: opts.currency,
       league: opts.league,
-      collapseListings: opts.collapseListings
+      collapseListings: opts.collapseListings,
+      collapseMerchant: false
     }
   }
 
-  if (!opts.currency) {
-    if ((!item.info.craftable || CONSUMABLE_CRAFTABLE_ITEM.has(item.category!)) &&
-      item.rarity !== ItemRarity.Unique
-    ) {
+  if (
+    (!item.info.craftable || CONSUMABLE_CRAFTABLE_ITEM.has(item.category!)) &&
+    item.rarity !== ItemRarity.Unique
+  ) {
+    if (!opts.currency) {
       filters.trade.currency = 'chaos_divine'
+    }
+    if (item.info.refName !== 'Mercenary Warrant') {
+      filters.trade.collapseMerchant = true
     }
   }
 
@@ -76,6 +82,19 @@ export function createFilters (
     filters.itemLevel = {
       value: item.itemLevel!,
       disabled: false
+    }
+    return filters
+  }
+  if (item.info.refName === 'Scrying Orb') {
+    filters.searchExact = {
+      baseType: item.info.name,
+      baseTypeTrade: t(opts, item.info),
+      sub: {
+        baseType: item.mapArea!.name,
+        baseTypeTrade: item.mapArea!.tradeDisc!,
+        discriminatorTrade: item.info.tradeDisc!,
+        disabled: false
+      }
     }
     return filters
   }
@@ -131,7 +150,7 @@ export function createFilters (
     }
 
     if (item.info.refName === 'Map' || item.info.unique?.base === 'Map') {
-      filters.discriminator = { trade: 'map' }
+      filters.searchExact.discriminatorTrade = 'map'
     }
 
     if (item.mapBlighted) {
@@ -140,14 +159,14 @@ export function createFilters (
 
     if (item.mapCompletionReward) {
       filters.mapCompletionReward = {
-        name: item.mapCompletionReward,
-        nameTrade: t(opts, ITEM_BY_TRANSLATED('UNIQUE', item.mapCompletionReward)![0])
+        name: item.mapCompletionReward.name,
+        nameTrade: t(opts, item.mapCompletionReward)
       }
     }
 
-    if (item.map!.tier) {
+    if (item.mapTier) {
       filters.mapTier = {
-        value: item.map!.tier,
+        value: item.mapTier,
         disabled: false
       }
     }
@@ -160,24 +179,18 @@ export function createFilters (
       value: floorToBracket(item.areaLevel!, [1, 68, 73, 78, 81, 83]),
       disabled: false
     }
-  } else if (item.category === ItemCategory.HeistBlueprint) {
-    filters.searchRelaxed = {
-      category: item.category,
-      disabled: true // TODO: blocked by https://www.pathofexile.com/forum/view-thread/3109852
-    }
+  } else if (item.category === ItemCategory.Chart) {
     filters.searchExact = {
       baseType: item.info.name,
       baseTypeTrade: t(opts, item.info)
     }
-
-    filters.areaLevel = {
-      value: item.areaLevel!,
-      disabled: false
-    }
-
-    if (item.heistBlueprint?.wingsRevealed) {
-      filters.heistWingsRevealed = {
-        value: item.heistBlueprint.wingsRevealed,
+    filters.searchRelaxed = {
+      category: item.category,
+      disabled: false,
+      sub: {
+        baseType: item.mapArea!.name,
+        baseTypeTrade: item.mapArea!.tradeDisc!,
+        discriminatorTrade: item.info.tradeDisc!,
         disabled: false
       }
     }
@@ -197,7 +210,8 @@ export function createFilters (
       if (
         item.category === ItemCategory.ClusterJewel ||
         item.category === ItemCategory.Idol ||
-        item.category === ItemCategory.Graft
+        item.category === ItemCategory.Graft ||
+        item.category === ItemCategory.HeistBlueprint
       ) {
         disabled = true
       } else if (
@@ -245,12 +259,7 @@ export function createFilters (
     // item.isCorrupted && -- let the buyer corrupt
     (item.category === ItemCategory.Jewel || item.category === ItemCategory.AbyssJewel))
 
-  if (!item.isUnmodifiable && (
-    item.rarity === ItemRarity.Normal ||
-    item.rarity === ItemRarity.Magic ||
-    item.rarity === ItemRarity.Rare ||
-    item.rarity === ItemRarity.Unique
-  )) {
+  if (!item.isUnmodifiable && (item.info.craftable || item.rarity === ItemRarity.Unique)) {
     filters.corrupted = {
       value: item.isCorrupted,
       exact: forAdornedJewel
@@ -272,11 +281,11 @@ export function createFilters (
       value: 'magic',
       disabled: true
     }
-  } else if (
+  } else if (item.info.craftable && (
     item.rarity === ItemRarity.Normal ||
     item.rarity === ItemRarity.Magic ||
     item.rarity === ItemRarity.Rare
-  ) {
+  )) {
     filters.rarity = {
       value: 'nonunique',
       disabled: false
@@ -294,6 +303,7 @@ export function createFilters (
   if (item.isSplit) {
     filters.split = { disabled: false, hidden: false }
   } else if (
+    (!PERMANENT_SC.includes(opts.league) || opts.exact) &&
     item.info.craftable && !item.isCorrupted && !item.isMirrored &&
     !item.isSynthesised && !item.isFractured && !item.influences.length
   ) {
@@ -324,6 +334,7 @@ export function createFilters (
       item.category !== ItemCategory.Jewel && /* https://pathofexile.gamepedia.com/Jewel#Affixes */
       item.category !== ItemCategory.HeistBlueprint &&
       item.category !== ItemCategory.HeistContract &&
+      item.category !== ItemCategory.Chart &&
       item.category !== ItemCategory.MemoryLine &&
       item.category !== ItemCategory.SanctumRelic &&
       item.category !== ItemCategory.Charm &&
@@ -397,9 +408,17 @@ export function createFilters (
     filters.foulborn = {
       value: Boolean(item.isFoulborn)
     }
+
+    filters.vestigial = {
+      value: Boolean(item.isVestigial)
+    }
   }
 
-  if (item.category === ItemCategory.HeistContract) {
+  if (
+    item.category === ItemCategory.HeistContract ||
+    item.category === ItemCategory.HeistBlueprint ||
+    item.category === ItemCategory.Chart
+  ) {
     if (item.rarity !== ItemRarity.Unique) {
       filters.areaLevel = {
         value: item.areaLevel!,
@@ -425,10 +444,17 @@ function createGemFilters (
     const normalGem = ITEM_BY_REF('GEM', item.info.gem!.normalVariant!)![0]
     filters.searchExact = {
       baseType: item.info.name,
-      baseTypeTrade: t(opts, normalGem)
+      baseTypeTrade: t(opts, normalGem),
+      discriminatorTrade: item.info.tradeDisc!
     }
-    filters.discriminator = {
-      trade: item.info.tradeDisc!
+  }
+
+  if (item.vaalGem) {
+    filters.searchExact.sub = {
+      baseType: item.vaalGem.name,
+      baseTypeTrade: t(opts, item.vaalGem),
+      discriminatorTrade: item.info.tradeDisc,
+      disabled: false
     }
   }
 
