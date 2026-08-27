@@ -23,13 +23,11 @@ export function getDetailsId (item: ParsedItem) {
   if (item.category === ItemCategory.Map) {
     return {
       ns: item.info.namespace,
-      name: (item.mapBlighted)
-        ? `${item.mapBlighted} ${item.info.refName}`
-        : item.info.refName,
+      name: item.info.refName,
       variant: variant([
-        `T${item.map!.tier ?? 0}`,
+        `T${(item.rarity === ItemRarity.Unique ? undefined : item.mapTier) ?? 0}`,
         (item.rarity !== ItemRarity.Unique)
-          ? (item.map!.tier) ? 'Gen-24' : 'Atlas'
+          ? (item.mapTier) ? 'Gen-24' : 'Atlas'
           : null
       ])
     }
