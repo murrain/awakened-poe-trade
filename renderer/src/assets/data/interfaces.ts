@@ -5,7 +5,6 @@ export interface StatMatcher {
   advanced?: string
   negate?: true
   value?: number
-  oils?: string // Amulet anointment
 }
 
 export enum StatBetter {
@@ -19,8 +18,11 @@ export interface Stat {
   dp?: true
   matchers: StatMatcher[]
   better: StatBetter
+  modFamily?: string[]
   fromAreaMods?: 'yes' | 'ubermap_exclusive' | 'heist_exclusive'
-  anointments?: Array<{ roll: number, oils: string }> // Ring anointments
+  anointments?: Array<{ roll: number, oils: string }>
+  mercenary?: { icon?: string, supports?: string[], tier?: number, canonical?: string, syntheticFamily?: true }
+  jewelleryQuality?: { catalyst: string }
   trade: {
     inverted?: true
     option?: true
@@ -59,13 +61,14 @@ export interface DropEntry {
 export interface BaseType {
   name: string
   refName: string
-  namespace: (
-    'DIVINATION_CARD' |
-    'CAPTURED_BEAST' |
-    'UNIQUE' |
-    'ITEM' |
-    'GEM'
-  )
+  namespace:
+    | 'DIVINATION_CARD'
+    | 'CAPTURED_BEAST'
+    | 'UNIQUE'
+    | 'ITEM'
+    | 'GEM'
+    | 'AREA'
+    | 'MERCENARY_BUILD'
   icon: string
   w?: number
   h?: number
@@ -92,8 +95,10 @@ export interface BaseType {
     fixedStats?: Array<Stat['ref']>
     disenchantValue?: number
   }
-  map?: {
+  area?: {
     screenshot?: string
+    special?: true
+    blighted?: true
   }
   gem?: {
     vaal?: true
@@ -107,6 +112,14 @@ export interface BaseType {
     es?: [min: number, max: number]
     ward?: [min: number, max: number]
   }
+  mercenaryBuild?: BaseType['refName'] | MercenaryBuild
+}
+
+export interface MercenaryBuild {
+  skills: Array<{
+    type: 'primary' | 'secondary' | 'utility'
+    name: string
+  }>
 }
 
 export interface TranslationDict {
@@ -226,10 +239,18 @@ export interface TranslationDict {
   DELVE_MODS: string[]
   VEILED_MODS: string[]
   INCURSION_MODS: string[]
+  ESSENCE_MODS: string[]
+  INFAMOUS_MODS: string[]
   FOIL_UNIQUE: string
   UNMODIFIABLE: string
   FOULBORN_NAME: RegExp
   FOULBORN_MODIFIER: string
+  VESTIGIAL_NAME: RegExp
+  VESTIGIAL_IMPLICIT: string
+  MAP_AREA: string
+  CHART_SULPHUR: string
+  MERCENARY_LEVEL: string
+  MERCENARY_BUILD: string
   // ---
   CHAT_SYSTEM: RegExp
   CHAT_TRADE: RegExp
