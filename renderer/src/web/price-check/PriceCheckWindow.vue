@@ -127,7 +127,8 @@ export default defineComponent({
         searchStatRange: 10,
         showCursor: true,
         requestPricePrediction: false,
-        rememberCurrency: false
+        merchantOnly: true,
+        defaultCurrency: null
       }
     }
   } satisfies WidgetSpec,
@@ -290,6 +291,12 @@ export default defineComponent({
       } else {
         wm.setFlag(props.config.wmId, 'invisible-on-blur', false)
         wm.setFlag(props.config.wmId, 'hide-on-blur', true)
+      }
+    })
+
+    watch(leagues.error, (value) => {
+      if (value === null) {
+        closeBrowser()
       }
     })
 
