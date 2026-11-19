@@ -49,7 +49,13 @@ export enum ItemCategory {
   Tincture = 'Tincture',
   Charm = 'Charm',
   Idol = 'Idol',
-  Graft = 'Graft'
+  Graft = 'Graft',
+  Chart = 'Chart',
+  MercenaryWarrant = 'Mercenary Warrant',
+  UpperLimbViscera = 'Upper Limb Viscera',
+  LowerLimbViscera = 'Lower Limb Viscera',
+  HeadViscera = 'Head Viscera',
+  TorsoViscera = 'Torso Viscera'
 }
 
 export const WEAPON_ONE_HANDED_MELEE = new Set([
@@ -90,7 +96,7 @@ export const ARMOUR = new Set([
   ItemCategory.Shield
 ])
 
-export const ACCESSORY = new Set([
+export const JEWELLERY = new Set([
   ItemCategory.Amulet,
   ItemCategory.Belt,
   ItemCategory.Ring
@@ -117,5 +123,6 @@ export const CONSUMABLE_CRAFTABLE_ITEM = new Set([
   ItemCategory.HeistContract,
   ItemCategory.Invitation,
   ItemCategory.MemoryLine,
-  ItemCategory.ExpeditionLogbook
+  ItemCategory.ExpeditionLogbook,
+  ItemCategory.Chart
 ])

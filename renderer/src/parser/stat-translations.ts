@@ -14,7 +14,7 @@ export interface ParsedStat {
   readonly translation: StatMatcher
   roll?: {
     unscalable: boolean
-    legacy?: true
+    generation?: 'legacy' | 'volatile' | 'reflecting'
     dp: boolean
     value: number
     min: number
@@ -85,8 +85,9 @@ function * _statPlaceholderGenerator (stat: string) {
     bounds?: { min: number, max: number }
   }> = []
   const withPlaceholders = stat
-    .replace(/\(\)/gm, '') // when GGG didn't provide advanced desc, like in "Passives in Radius of Wicked Ward() can be Allocated"
-    .replace(/(?<value>(?<!\d|\))[+-]?\d+(?:\.\d+)?)(?:\((?<min>.[^)-]*)(?:-(?<max>[^)]+))?\))?/gm, (_, roll: string, min?: string, max?: string) => {
+    .replaceAll('()', '') // when GGG didn't provide advanced desc, like in "Passives in Radius of Wicked Ward() can be Allocated"
+    .replaceAll('(...)', '') // remove stat value ranges which are described textually
+    .replaceAll(/(?<value>(?<!\d|\))[+-]?\d+(?:\.\d+)?)(?:\((?<min>.[^)-]*)(?:-(?<max>[^)]+))?\))?/g, (_, roll: string, min?: string, max?: string) => {
       if (min != null && max == null) {
         // example: Sextant "# uses remaining", legacy rolls
         max = min
@@ -210,7 +211,7 @@ export function tryParseTranslation (
       roll: combination.values.length
         ? {
             unscalable: stat.unscalable,
-            legacy: legacyStatRolls || undefined,
+            generation: (legacyStatRolls) ? 'legacy' : undefined,
             dp: found.stat.dp || combination.values.some(stat => stat.decimal),
             value: getRollOrMinmaxAvg(combination.values.map(stat => stat.roll)),
             min: getRollOrMinmaxAvg(combination.values.map(stat => stat.bounds?.min ?? stat.roll)),
